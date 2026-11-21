@@ -122,31 +122,32 @@ public class AuthService {
         }
 
         challenges.delete(challenge);
-        UserAccount user = users.findByChannelAndDestination(recipient.channel(), recipient.destination())
-            .orElseGet(() -> new UserAccount(
-                recipient.channel(),
-                recipient.destination(),
-                displayName,
-                now
-            ));
-        if (user.getId() != null) {
-            user.recordLogin(displayName, now);
-        }
-        user = users.save(user);
+        return createLoginSession(recipient, displayName, now);
+    }
 
-        String token = newSessionToken();
-        sessions.save(new AuthSession(
-            hashSessionToken(token),
-            user.getId(),
-            now.plus(SESSION_LIFETIME),
-            now
-        ));
-        return new LoginResult(
-            token,
-            recipient.channel(),
-            recipient.destination(),
-            user.getDisplayName()
-        );
+    @Transactional
+    public LoginResult createDemoSession(
+        String channelValue,
+        String emailValue,
+        String phoneValue,
+        String displayNameValue
+    ) {
+        String channel = channelValue == null ? "email" : channelValue.trim().toLowerCase(Locale.ROOT);
+        if (!channel.equals("email") && !channel.equals("sms")) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose email or SMS.");
+        }
+
+        String destinationValue = channel.equals("email") ? emailValue : phoneValue;
+        String destination = destinationValue == null ? "" : destinationValue.trim();
+        if (destination.isEmpty() || destination.length() > 254) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter a value for your email or phone.");
+        }
+        if (channel.equals("email")) {
+            destination = destination.toLowerCase(Locale.ROOT);
+        }
+
+        String displayName = normalizeDisplayName(displayNameValue);
+        return createLoginSession(new Recipient(channel, destination), displayName, Instant.now());
     }
 
     @Transactional(readOnly = true)
@@ -158,6 +159,7 @@ public class AuthService {
         return sessions.findByTokenHashAndExpiresAtAfter(hashSessionToken(token), now)
             .flatMap(session -> users.findById(session.getUserId()))
             .map(user -> new SessionInfo(
+                user.getId(),
                 user.getChannel(),
                 user.getDestination(),
                 user.getDisplayName()
@@ -224,6 +226,34 @@ public class AuthService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(token);
     }
 
+    private LoginResult createLoginSession(Recipient recipient, String displayName, Instant now) {
+        UserAccount user = users.findByChannelAndDestination(recipient.channel(), recipient.destination())
+            .orElseGet(() -> new UserAccount(
+                recipient.channel(),
+                recipient.destination(),
+                displayName,
+                now
+            ));
+        if (user.getId() != null) {
+            user.recordLogin(displayName, now);
+        }
+        user = users.save(user);
+
+        String token = newSessionToken();
+        sessions.save(new AuthSession(
+            hashSessionToken(token),
+            user.getId(),
+            now.plus(SESSION_LIFETIME),
+            now
+        ));
+        return new LoginResult(
+            token,
+            recipient.channel(),
+            recipient.destination(),
+            user.getDisplayName()
+        );
+    }
+
     private String hashSessionToken(String token) {
         try {
             return HexFormat.of().formatHex(
@@ -248,5 +278,5 @@ public class AuthService {
 
     public record LoginResult(String token, String channel, String destination, String displayName) {}
 
-    public record SessionInfo(String channel, String destination, String displayName) {}
+    public record SessionInfo(Long userId, String channel, String destination, String displayName) {}
 }

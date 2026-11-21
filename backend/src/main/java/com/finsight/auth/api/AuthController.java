@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
@@ -27,13 +28,16 @@ public class AuthController {
 
     private final AuthService authService;
     private final boolean secureCookie;
+    private final boolean demoAuthEnabled;
 
     public AuthController(
         AuthService authService,
-        @Value("${finsight.session.secure:false}") boolean secureCookie
+        @Value("${finsight.session.secure:false}") boolean secureCookie,
+        @Value("${finsight.demo-auth.enabled:false}") boolean demoAuthEnabled
     ) {
         this.authService = authService;
         this.secureCookie = secureCookie;
+        this.demoAuthEnabled = demoAuthEnabled;
     }
 
     @PostMapping("/otp/send")
@@ -59,6 +63,26 @@ public class AuthController {
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(result.token(), SESSION_LIFETIME).toString())
             .body(body);
+    }
+
+    @PostMapping("/demo")
+    public ResponseEntity<Map<String, Object>> demoLogin(@RequestBody DemoLoginRequest request) {
+        if (!demoAuthEnabled) {
+            throw new AuthException(HttpStatus.NOT_FOUND, "Endpoint not found.");
+        }
+        if (request == null) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter an email or phone to continue.");
+        }
+
+        LoginResult result = authService.createDemoSession(
+            request.channel(),
+            request.email(),
+            request.phone(),
+            request.displayName()
+        );
+        return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE, sessionCookie(result.token(), SESSION_LIFETIME).toString())
+            .body(Map.of("authenticated", true));
     }
 
     @GetMapping("/session")

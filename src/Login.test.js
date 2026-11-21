@@ -64,7 +64,10 @@ test('demo sign-in accepts arbitrary credentials and skips OTP verification', as
   const previousFetch = global.fetch;
   const previousDemoAuth = process.env.REACT_APP_DEMO_AUTH;
   const onLogin = jest.fn();
-  global.fetch = jest.fn();
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ authenticated: true }),
+  });
   process.env.REACT_APP_DEMO_AUTH = 'true';
 
   const { unmount } = render(<Login onLogin={onLogin} />);
@@ -80,7 +83,11 @@ test('demo sign-in accepts arbitrary credentials and skips OTP verification', as
       channel: 'email',
       remember: false,
     }));
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/demo`, expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ channel: 'email', email: 'anything' }),
+    }));
     expect(screen.queryByLabelText('Verification code')).not.toBeInTheDocument();
   } finally {
     unmount();

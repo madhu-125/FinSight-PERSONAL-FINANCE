@@ -11,6 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.finsight.auth.repository.AuthSessionRepository;
+import com.finsight.auth.repository.FinanceAccountRepository;
+import com.finsight.auth.repository.FinanceTransactionRepository;
+import com.finsight.auth.repository.MonthlyBudgetRepository;
 import com.finsight.auth.repository.OtpChallengeRepository;
 import com.finsight.auth.repository.UserAccountRepository;
 import com.finsight.auth.service.OtpDeliveryService;
@@ -41,6 +44,15 @@ class AuthControllerTest {
     private AuthSessionRepository sessions;
 
     @Autowired
+    private FinanceTransactionRepository transactions;
+
+    @Autowired
+    private FinanceAccountRepository accounts;
+
+    @Autowired
+    private MonthlyBudgetRepository budgets;
+
+    @Autowired
     private UserAccountRepository users;
 
     @MockitoBean
@@ -48,6 +60,9 @@ class AuthControllerTest {
 
     @BeforeEach
     void clearDatabase() {
+        budgets.deleteAll();
+        accounts.deleteAll();
+        transactions.deleteAll();
         sessions.deleteAll();
         challenges.deleteAll();
         users.deleteAll();
@@ -101,5 +116,136 @@ class AuthControllerTest {
                     """))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value(containsString("international format")));
+    }
+
+    @Test
+    void transactionsRequireSessionAndAreScopedToTheSignedInUser() throws Exception {
+        mockMvc.perform(get("/api/transactions"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error").value("Please sign in to continue."));
+
+        Cookie firstUser = demoLogin("first-user");
+        mockMvc.perform(post("/api/transactions")
+                .cookie(firstUser)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"description":"Lunch","category":"Food","amount":12.50,"type":"expense","transactionDate":"2026-11-21"}
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.description").value("Lunch"))
+            .andExpect(jsonPath("$.amount").value(12.5))
+            .andExpect(jsonPath("$.type").value("expense"));
+
+        mockMvc.perform(get("/api/transactions").cookie(firstUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].category").value("Food"));
+
+        Cookie secondUser = demoLogin("second-user");
+        mockMvc.perform(get("/api/transactions").cookie(secondUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void transactionsRejectAmountsWithMoreThanTwoDecimalPlaces() throws Exception {
+        Cookie session = demoLogin("amount-validation");
+        mockMvc.perform(post("/api/transactions")
+                .cookie(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"description":"Lunch","category":"Food","amount":1.001,"type":"expense","transactionDate":"2026-11-21"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Amount can have at most two decimal places."));
+    }
+
+    @Test
+    void accountsAndBudgetsAreScopedToTheSignedInUser() throws Exception {
+        mockMvc.perform(get("/api/accounts"))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/budgets"))
+            .andExpect(status().isUnauthorized());
+
+        Cookie firstUser = demoLogin("account-owner");
+        mockMvc.perform(post("/api/accounts")
+                .cookie(firstUser)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"Main savings","type":"savings","balance":1000.00}
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.name").value("Main savings"))
+            .andExpect(jsonPath("$.balance").value(1000));
+
+        String budget = """
+            {"category":"Food","amount":500.00,"month":"2026-11"}
+            """;
+        mockMvc.perform(post("/api/budgets")
+                .cookie(firstUser)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(budget))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.month").value("2026-11"))
+            .andExpect(jsonPath("$.amount").value(500));
+
+        mockMvc.perform(post("/api/budgets")
+                .cookie(firstUser)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"category":"Food","amount":600.00,"month":"2026-11"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.amount").value(600));
+
+        mockMvc.perform(get("/api/accounts").cookie(firstUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1));
+        mockMvc.perform(get("/api/budgets").cookie(firstUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].amount").value(600));
+
+        Cookie secondUser = demoLogin("other-account-owner");
+        mockMvc.perform(get("/api/accounts").cookie(secondUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get("/api/budgets").cookie(secondUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void accountAndBudgetEndpointsValidateTheirInputs() throws Exception {
+        Cookie session = demoLogin("validation-user");
+        mockMvc.perform(post("/api/accounts")
+                .cookie(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"Wallet","type":"unknown","balance":0}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Choose cash, checking, savings, or credit."));
+
+        mockMvc.perform(post("/api/budgets")
+                .cookie(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"category":"Food","amount":100,"month":"not-a-month"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Choose a valid budget month."));
+    }
+
+    private Cookie demoLogin(String email) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/auth/demo")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"email","email":"%s"}
+                    """.formatted(email)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.authenticated").value(true))
+            .andReturn();
+        return result.getResponse().getCookie("finsight_session");
     }
 }

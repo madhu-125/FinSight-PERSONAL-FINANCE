@@ -61,6 +61,63 @@ const navigation = [
 
 const AUTH_STORAGE_KEY = "finsight-authenticated";
 const API_BASE_URL = process.env.REACT_APP_API_URL || "";
+const CURRENCY_FORMATTER = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+});
+const ANALYTICS_COLORS = ["#9b7bff", "#38d9b2", "#ffb86b", "#5e9cff", "#ff7f9f", "#7ed6df"];
+
+function getAnalyticsData(transactions) {
+  const now = new Date();
+  const monthFormatter = new Intl.DateTimeFormat("en-IN", { month: "short" });
+  const monthlyMap = new Map();
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    monthlyMap.set(monthKey, {
+      month: monthKey,
+      label: monthFormatter.format(date),
+      income: 0,
+      expenses: 0,
+    });
+  }
+
+  const categoryTotals = new Map();
+  let income = 0;
+  let expenses = 0;
+  transactions.forEach((transaction) => {
+    const amount = Number(transaction.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+
+    const transactionMonth = transaction.transactionDate?.slice(0, 7);
+    const monthlyEntry = monthlyMap.get(transactionMonth);
+    if (transaction.type === "income") {
+      income += amount;
+      if (monthlyEntry) monthlyEntry.income += amount;
+    } else if (transaction.type === "expense") {
+      expenses += amount;
+      if (monthlyEntry) monthlyEntry.expenses += amount;
+      const category = transaction.category?.trim() || "Uncategorized";
+      categoryTotals.set(category, (categoryTotals.get(category) || 0) + amount);
+    }
+  });
+
+  const categories = [...categoryTotals.entries()]
+    .map(([name, value], index) => ({
+      name,
+      value,
+      color: ANALYTICS_COLORS[index % ANALYTICS_COLORS.length],
+    }))
+    .sort((left, right) => right.value - left.value);
+
+  return {
+    income,
+    expenses,
+    net: income - expenses,
+    monthly: [...monthlyMap.values()],
+    categories,
+  };
+}
 
 async function parseApiResponse(response) {
   let result;
@@ -71,6 +128,16 @@ async function parseApiResponse(response) {
   }
   if (!response.ok) throw new Error(result.error || "The request could not be completed.");
   return result;
+}
+
+async function postApiJson(path, payload) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  return parseApiResponse(response);
 }
 
 function LandingPage({ onLogin }) {
@@ -201,6 +268,507 @@ function SessionErrorPage({ message, onRetry, onReturnToLanding }) {
   );
 }
 
+function TransactionList({ transactions }) {
+  if (transactions.length === 0) {
+    return <p className="transaction-empty">No transactions yet.</p>;
+  }
+
+  const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  return transactions.map((transaction) => (
+    <div className="transaction-row" key={transaction.id}>
+      <div className={`transaction-icon ${transaction.type === "income" ? "green" : "purple"}`}>
+        <Wallet size={19} />
+      </div>
+      <div className="transaction-details">
+        <strong>{transaction.description}</strong>
+        <span>{transaction.category}</span>
+      </div>
+      <span className="transaction-date">
+        {dateFormatter.format(new Date(`${transaction.transactionDate}T00:00:00`))}
+      </span>
+      <strong className={`transaction-amount ${transaction.type}`}>
+        {transaction.type === "expense" ? "−" : "+"}
+        {CURRENCY_FORMATTER.format(Number(transaction.amount))}
+      </strong>
+    </div>
+  ));
+}
+
+function TransactionForm({ onClose, onCreated }) {
+  const now = new Date();
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [type, setType] = useState("expense");
+  const [category, setCategory] = useState("");
+  const [transactionDate, setTransactionDate] = useState([
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-"));
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setIsSaving(true);
+    try {
+      const transaction = await postApiJson("/api/transactions", {
+        description,
+        amount: Number(amount),
+        type,
+        category,
+        transactionDate,
+      });
+      onCreated(transaction);
+      onClose();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="transaction-modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !isSaving) onClose();
+      }}
+    >
+      <section
+        className="transaction-modal panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transaction-modal-title"
+      >
+        <div className="transaction-modal-header">
+          <div>
+            <h2 id="transaction-modal-title">Add transaction</h2>
+            <p>Save an income or expense to your account.</p>
+          </div>
+          <button
+            className="transaction-modal-close"
+            type="button"
+            aria-label="Close transaction form"
+            onClick={onClose}
+            disabled={isSaving}
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        <form className="transaction-form" onSubmit={handleSubmit}>
+          <label className="transaction-field transaction-field-wide" htmlFor="transaction-description">
+            Description
+            <input
+              id="transaction-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              maxLength={120}
+              placeholder="e.g. Groceries"
+              required
+            />
+          </label>
+
+          <label className="transaction-field" htmlFor="transaction-amount">
+            Amount
+            <input
+              id="transaction-amount"
+              type="number"
+              min="0.01"
+              max="9999999999.99"
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="0.00"
+              required
+            />
+          </label>
+
+          <label className="transaction-field" htmlFor="transaction-type">
+            Type
+            <select id="transaction-type" value={type} onChange={(event) => setType(event.target.value)}>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </label>
+
+          <label className="transaction-field" htmlFor="transaction-category">
+            Category
+            <input
+              id="transaction-category"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              maxLength={60}
+              placeholder="e.g. Food"
+              required
+            />
+          </label>
+
+          <label className="transaction-field" htmlFor="transaction-date">
+            Date
+            <input
+              id="transaction-date"
+              type="date"
+              value={transactionDate}
+              onChange={(event) => setTransactionDate(event.target.value)}
+              required
+            />
+          </label>
+
+          {error && <p className="transaction-form-error" role="alert">{error}</p>}
+
+          <div className="transaction-form-actions">
+            <button type="button" className="transaction-cancel-button" onClick={onClose} disabled={isSaving}>
+              Cancel
+            </button>
+            <button type="submit" className="add-button" disabled={isSaving}>
+              {isSaving ? "Saving..." : "Save transaction"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function AccountList({ accounts }) {
+  if (accounts.length === 0) {
+    return <p className="transaction-empty">No accounts yet.</p>;
+  }
+
+  return (
+    <div className="finance-record-list">
+      {accounts.map((account) => (
+        <div className="finance-record-row" key={account.id}>
+          <div className="transaction-icon purple"><Wallet size={19} /></div>
+          <div className="transaction-details">
+            <strong>{account.name}</strong>
+            <span>{account.type[0].toUpperCase() + account.type.slice(1)}</span>
+          </div>
+          <strong className="finance-record-amount">{CURRENCY_FORMATTER.format(Number(account.balance))}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BudgetList({ budgets }) {
+  if (budgets.length === 0) {
+    return <p className="transaction-empty">No budgets yet.</p>;
+  }
+
+  const monthFormatter = new Intl.DateTimeFormat("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <div className="finance-record-list">
+      {budgets.map((budget) => {
+        const [year, month] = budget.month.split("-");
+        const monthLabel = monthFormatter.format(new Date(Number(year), Number(month) - 1, 1));
+        return (
+          <div className="finance-record-row" key={budget.id}>
+            <div className="transaction-icon green"><Target size={19} /></div>
+            <div className="transaction-details">
+              <strong>{budget.category}</strong>
+              <span>{monthLabel}</span>
+            </div>
+            <strong className="finance-record-amount">{CURRENCY_FORMATTER.format(Number(budget.amount))}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AnalyticsView({ transactions, error }) {
+  const analytics = getAnalyticsData(transactions);
+  const hasMonthlyActivity = analytics.monthly.some((month) => month.income > 0 || month.expenses > 0);
+  const hasExpenses = analytics.categories.length > 0;
+  const totalCategorizedExpenses = analytics.categories.reduce((total, category) => total + category.value, 0);
+  const compactCurrency = (value) => new Intl.NumberFormat("en-IN", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+
+  return (
+    <section className="analytics-page">
+      <div className="transactions-page-header">
+        <div>
+          <h2>Analytics overview</h2>
+          <p>Trends and breakdowns from your saved transactions.</p>
+        </div>
+      </div>
+      {error && <p className="transaction-form-error" role="alert">{error}</p>}
+
+      <div className="analytics-summary-grid">
+        <article className="analytics-summary-card">
+          <span className="analytics-summary-icon analytics-income-icon"><TrendingUp size={19} /></span>
+          <span className="analytics-summary-label">All-time income</span>
+          <strong>{CURRENCY_FORMATTER.format(analytics.income)}</strong>
+        </article>
+        <article className="analytics-summary-card">
+          <span className="analytics-summary-icon analytics-expense-icon"><TrendingDown size={19} /></span>
+          <span className="analytics-summary-label">All-time expenses</span>
+          <strong>{CURRENCY_FORMATTER.format(analytics.expenses)}</strong>
+        </article>
+        <article className="analytics-summary-card">
+          <span className="analytics-summary-icon analytics-net-icon"><Wallet size={19} /></span>
+          <span className="analytics-summary-label">Net cash flow</span>
+          <strong className={analytics.net < 0 ? "analytics-negative" : ""}>
+            {CURRENCY_FORMATTER.format(analytics.net)}
+          </strong>
+        </article>
+      </div>
+
+      <div className="analytics-charts-grid">
+        <section className="panel analytics-panel">
+          <div className="panel-header">
+            <div>
+              <h3>Monthly cash flow</h3>
+              <p>Income and expenses over the last six months</p>
+            </div>
+          </div>
+          {hasMonthlyActivity ? (
+            <>
+              <div className="chart-legend">
+                <span><i className="legend-income" /> Income</span>
+                <span><i className="legend-expense" /> Expenses</span>
+              </div>
+              <div className="area-chart analytics-area-chart">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={analytics.monthly}>
+                    <defs>
+                      <linearGradient id="analyticsIncomeGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#9b7bff" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#9b7bff" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="analyticsExpenseGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#38d9b2" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#38d9b2" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#292d40" strokeDasharray="4 5" vertical={false} />
+                    <XAxis dataKey="label" stroke="#777d94" tickLine={false} axisLine={false} />
+                    <YAxis
+                      stroke="#777d94"
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={compactCurrency}
+                      width={55}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: "#202438", border: "1px solid #363b54", borderRadius: 8 }}
+                      formatter={(value, name) => [CURRENCY_FORMATTER.format(value), name === "income" ? "Income" : "Expenses"]}
+                      labelFormatter={(label) => `Month: ${label}`}
+                    />
+                    <Area type="monotone" dataKey="income" name="income" stroke="#a78bfa" fill="url(#analyticsIncomeGradient)" strokeWidth={2} />
+                    <Area type="monotone" dataKey="expenses" name="expenses" stroke="#38d9b2" fill="url(#analyticsExpenseGradient)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          ) : (
+            <p className="analytics-empty">No income or expenses in the last six months.</p>
+          )}
+        </section>
+
+        <section className="panel analytics-panel">
+          <div className="panel-header">
+            <div>
+              <h3>Spending by category</h3>
+              <p>All-time expenses grouped by category</p>
+            </div>
+          </div>
+          {hasExpenses ? (
+            <>
+              <div className="donut-container analytics-donut">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={analytics.categories}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={56}
+                      outerRadius={78}
+                      paddingAngle={3}
+                      stroke="none"
+                    >
+                      {analytics.categories.map((category) => (
+                        <Cell key={category.name} fill={category.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: "#202438", border: "1px solid #363b54", borderRadius: 8 }}
+                      formatter={(value) => CURRENCY_FORMATTER.format(value)}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="donut-center">
+                  <span>Total spent</span>
+                  <strong>{CURRENCY_FORMATTER.format(analytics.expenses)}</strong>
+                </div>
+              </div>
+              <div className="analytics-category-list">
+                {analytics.categories.map((category) => (
+                  <div className="analytics-category-row" key={category.name}>
+                    <span className="analytics-category-name">
+                      <i style={{ backgroundColor: category.color }} />
+                      {category.name}
+                    </span>
+                    <span>{CURRENCY_FORMATTER.format(category.value)}</span>
+                    <strong>{Math.round((category.value / totalCategorizedExpenses) * 100)}%</strong>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="analytics-empty">Add an expense to see your category breakdown.</p>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function AccountForm({ onClose, onCreated }) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState("checking");
+  const [balance, setBalance] = useState("0");
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setIsSaving(true);
+    try {
+      const account = await postApiJson("/api/accounts", {
+        name,
+        type,
+        balance: Number(balance),
+      });
+      onCreated(account);
+      onClose();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="transaction-modal-backdrop">
+      <section className="transaction-modal panel" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+        <div className="transaction-modal-header">
+          <div>
+            <h2 id="account-modal-title">Add account</h2>
+            <p>Track a cash, bank, savings, or credit account.</p>
+          </div>
+          <button className="transaction-modal-close" type="button" aria-label="Close account form" onClick={onClose} disabled={isSaving}>
+            <X size={19} />
+          </button>
+        </div>
+        <form className="transaction-form" onSubmit={handleSubmit}>
+          <label className="transaction-field transaction-field-wide" htmlFor="account-name">
+            Account name
+            <input id="account-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="e.g. Main savings" required />
+          </label>
+          <label className="transaction-field" htmlFor="account-type">
+            Account type
+            <select id="account-type" value={type} onChange={(event) => setType(event.target.value)}>
+              <option value="checking">Checking</option>
+              <option value="savings">Savings</option>
+              <option value="cash">Cash</option>
+              <option value="credit">Credit</option>
+            </select>
+          </label>
+          <label className="transaction-field" htmlFor="account-balance">
+            Current balance (INR)
+            <input id="account-balance" type="number" min="0" max="9999999999.99" step="0.01" value={balance} onChange={(event) => setBalance(event.target.value)} required />
+          </label>
+          {error && <p className="transaction-form-error" role="alert">{error}</p>}
+          <div className="transaction-form-actions">
+            <button type="button" className="transaction-cancel-button" onClick={onClose} disabled={isSaving}>Cancel</button>
+            <button type="submit" className="add-button" disabled={isSaving}>{isSaving ? "Saving..." : "Save account"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function BudgetForm({ onClose, onCreated }) {
+  const now = new Date();
+  const [category, setCategory] = useState("");
+  const [amount, setAmount] = useState("");
+  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setIsSaving(true);
+    try {
+      const budget = await postApiJson("/api/budgets", {
+        category,
+        amount: Number(amount),
+        month,
+      });
+      onCreated(budget);
+      onClose();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="transaction-modal-backdrop">
+      <section className="transaction-modal panel" role="dialog" aria-modal="true" aria-labelledby="budget-modal-title">
+        <div className="transaction-modal-header">
+          <div>
+            <h2 id="budget-modal-title">Add monthly budget</h2>
+            <p>Set a spending limit for a category and month.</p>
+          </div>
+          <button className="transaction-modal-close" type="button" aria-label="Close budget form" onClick={onClose} disabled={isSaving}>
+            <X size={19} />
+          </button>
+        </div>
+        <form className="transaction-form" onSubmit={handleSubmit}>
+          <label className="transaction-field transaction-field-wide" htmlFor="budget-category">
+            Category
+            <input id="budget-category" value={category} onChange={(event) => setCategory(event.target.value)} maxLength={60} placeholder="e.g. Food" required />
+          </label>
+          <label className="transaction-field" htmlFor="budget-amount">
+            Monthly limit (INR)
+            <input id="budget-amount" type="number" min="0.01" max="9999999999.99" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required />
+          </label>
+          <label className="transaction-field" htmlFor="budget-month">
+            Month
+            <input id="budget-month" type="month" value={month} onChange={(event) => setMonth(event.target.value)} required />
+          </label>
+          {error && <p className="transaction-form-error" role="alert">{error}</p>}
+          <div className="transaction-form-actions">
+            <button type="button" className="transaction-cancel-button" onClick={onClose} disabled={isSaving}>Cancel</button>
+            <button type="submit" className="add-button" disabled={isSaving}>{isSaving ? "Saving..." : "Save budget"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function App() {
   const [currentPage, setCurrentPage] = useState(() =>
     window.localStorage.getItem(AUTH_STORAGE_KEY) === "true" ? "session-check" : "landing"
@@ -209,6 +777,15 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const [logoutError, setLogoutError] = useState("");
+  const [transactions, setTransactions] = useState([]);
+  const [transactionError, setTransactionError] = useState("");
+  const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [accountError, setAccountError] = useState("");
+  const [isAccountFormOpen, setIsAccountFormOpen] = useState(false);
+  const [budgets, setBudgets] = useState([]);
+  const [budgetError, setBudgetError] = useState("");
+  const [isBudgetFormOpen, setIsBudgetFormOpen] = useState(false);
 
   useEffect(() => {
     if (currentPage !== "session-check") return undefined;
@@ -237,6 +814,37 @@ function App() {
   }, [currentPage]);
 
   useEffect(() => {
+    if (currentPage !== "dashboard") return undefined;
+    let active = true;
+
+    const loadList = (path, setItems, setError) => {
+      setError("");
+      fetch(`${API_BASE_URL}${path}`, { credentials: "include" })
+        .then(parseApiResponse)
+        .then((result) => {
+          if (!Array.isArray(result)) {
+            throw new Error("The server returned an invalid list response.");
+          }
+          if (active) setItems(result);
+        })
+        .catch((error) => {
+          if (active) setError(error.message);
+        });
+    };
+
+    loadList("/api/transactions", setTransactions, setTransactionError);
+    if (activePage === "Accounts") {
+      loadList("/api/accounts", setAccounts, setAccountError);
+    } else if (activePage === "Budgets") {
+      loadList("/api/budgets", setBudgets, setBudgetError);
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [currentPage, activePage]);
+
+  useEffect(() => {
     if (currentPage !== "loading") return undefined;
     const loadingTimer = window.setTimeout(() => setCurrentPage("dashboard"), 1600);
     return () => window.clearTimeout(loadingTimer);
@@ -247,12 +855,40 @@ function App() {
     setCurrentPage("loading");
   };
 
+  const handleTransactionCreated = (transaction) => {
+    setTransactionError("");
+    setTransactions((current) => [transaction, ...current].sort((left, right) => (
+      right.transactionDate.localeCompare(left.transactionDate) || right.id - left.id
+    )));
+  };
+
+  const handleAccountCreated = (account) => {
+    setAccountError("");
+    setAccounts((current) => [...current, account].sort((left, right) => left.name.localeCompare(right.name)));
+  };
+
+  const handleBudgetCreated = (budget) => {
+    setBudgetError("");
+    setBudgets((current) => [...current.filter((item) => item.id !== budget.id), budget].sort((left, right) => (
+      right.month.localeCompare(left.month) || left.category.localeCompare(right.category)
+    )));
+  };
+
   const handleLogout = () => {
     setLogoutError("");
     fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST", credentials: "include" })
       .then(parseApiResponse)
       .then(() => {
         window.localStorage.removeItem(AUTH_STORAGE_KEY);
+        setTransactions([]);
+        setTransactionError("");
+        setIsTransactionFormOpen(false);
+        setAccounts([]);
+        setAccountError("");
+        setIsAccountFormOpen(false);
+        setBudgets([]);
+        setBudgetError("");
+        setIsBudgetFormOpen(false);
         setActivePage("Dashboard");
         setMenuOpen(false);
         setCurrentPage("landing");
@@ -263,7 +899,7 @@ function App() {
   const stats = [
     {
       title: "Total Balance",
-      value: "â‚¹1,24,500",
+      value: "₹1,24,500",
       change: "+12.8%",
       description: "Compared to last month",
       icon: Wallet,
@@ -272,7 +908,7 @@ function App() {
     },
     {
       title: "Total Income",
-      value: "â‚¹65,000",
+      value: "₹65,000",
       change: "+8.4%",
       description: "Compared to last month",
       icon: TrendingUp,
@@ -281,7 +917,7 @@ function App() {
     },
     {
       title: "Total Expenses",
-      value: "â‚¹28,450",
+      value: "₹28,450",
       change: "-4.2%",
       description: "Compared to last month",
       icon: TrendingDown,
@@ -290,7 +926,7 @@ function App() {
     },
     {
       title: "Total Savings",
-      value: "â‚¹36,550",
+      value: "₹36,550",
       change: "+15.6%",
       description: "Compared to last month",
       icon: Target,
@@ -456,7 +1092,7 @@ function App() {
                 </p>
               </div>
 
-              <button className="add-button">
+              <button className="add-button" type="button" onClick={() => setIsTransactionFormOpen(true)}>
                 <Plus size={18} /> Add Transaction
               </button>
             </section>
@@ -529,7 +1165,7 @@ function App() {
                         stroke="#777d94"
                         tickLine={false}
                         axisLine={false}
-                        tickFormatter={(value) => `â‚¹${value / 1000}k`}
+                        tickFormatter={(value) => `₹${value / 1000}k`}
                       />
                       <Tooltip
                         contentStyle={{
@@ -538,7 +1174,7 @@ function App() {
                           borderRadius: "12px",
                           color: "#fff",
                         }}
-                        formatter={(value) => `â‚¹${value.toLocaleString("en-IN")}`}
+                        formatter={(value) => `₹${value.toLocaleString("en-IN")}`}
                       />
                       <Area
                         type="monotone"
@@ -598,7 +1234,7 @@ function App() {
                   </ResponsiveContainer>
                   <div className="donut-center">
                     <span>Total Spent</span>
-                    <strong>â‚¹28,450</strong>
+                    <strong>₹28,450</strong>
                   </div>
                 </div>
 
@@ -626,8 +1262,9 @@ function App() {
                   </div>
                 </div>
 
+                {transactionError && <p className="transaction-form-error" role="alert">{transactionError}</p>}
                 <div className="transaction-list">
-                  <p className="transaction-empty">No transactions yet.</p>
+                  <TransactionList transactions={transactions.slice(0, 5)} />
                 </div>
               </div>
 
@@ -672,6 +1309,52 @@ function App() {
               <span>Made with âœ¦ for your financial wellness</span>
             </footer>
           </>
+        ) : activePage === "Transactions" ? (
+          <section className="transactions-page panel">
+            <div className="transactions-page-header">
+              <div>
+                <h2>All transactions</h2>
+                <p>Income and expenses saved to your account.</p>
+              </div>
+              <button className="add-button" type="button" onClick={() => setIsTransactionFormOpen(true)}>
+                <Plus size={18} /> Add Transaction
+              </button>
+            </div>
+            {transactionError && <p className="transaction-form-error" role="alert">{transactionError}</p>}
+            <div className="transaction-list">
+              <TransactionList transactions={transactions} />
+            </div>
+          </section>
+        ) : activePage === "Accounts" ? (
+          <section className="transactions-page panel">
+            <div className="transactions-page-header">
+              <div>
+                <h2>Your accounts</h2>
+                <p>Track account balances in Indian rupees.</p>
+              </div>
+              <button className="add-button" type="button" onClick={() => setIsAccountFormOpen(true)}>
+                <Plus size={18} /> Add Account
+              </button>
+            </div>
+            {accountError && <p className="transaction-form-error" role="alert">{accountError}</p>}
+            <AccountList accounts={accounts} />
+          </section>
+        ) : activePage === "Analytics" ? (
+          <AnalyticsView transactions={transactions} error={transactionError} />
+        ) : activePage === "Budgets" ? (
+          <section className="transactions-page panel">
+            <div className="transactions-page-header">
+              <div>
+                <h2>Monthly budgets</h2>
+                <p>Set a category limit for each month in Indian rupees.</p>
+              </div>
+              <button className="add-button" type="button" onClick={() => setIsBudgetFormOpen(true)}>
+                <Plus size={18} /> Add Budget
+              </button>
+            </div>
+            {budgetError && <p className="transaction-form-error" role="alert">{budgetError}</p>}
+            <BudgetList budgets={budgets} />
+          </section>
         ) : (
           <section className="coming-soon panel">
             <div className="coming-icon"><Sparkles size={32} /></div>
@@ -683,6 +1366,24 @@ function App() {
           </section>
         )}
       </main>
+      {isTransactionFormOpen && (
+        <TransactionForm
+          onClose={() => setIsTransactionFormOpen(false)}
+          onCreated={handleTransactionCreated}
+        />
+      )}
+      {isAccountFormOpen && (
+        <AccountForm
+          onClose={() => setIsAccountFormOpen(false)}
+          onCreated={handleAccountCreated}
+        />
+      )}
+      {isBudgetFormOpen && (
+        <BudgetForm
+          onClose={() => setIsBudgetFormOpen(false)}
+          onCreated={handleBudgetCreated}
+        />
+      )}
     </div>
   );
 }

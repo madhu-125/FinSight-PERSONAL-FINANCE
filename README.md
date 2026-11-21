@@ -14,7 +14,11 @@ Never commit `.env` or share its values. Phone numbers must include the country 
 
 The existing password form is still a demo and is not checked against a user database; OTP verifies access to the selected email address or phone number. Add a real user store before using this as production authentication.
 
-For local UI demos only, set `REACT_APP_DEMO_AUTH=true` in `.env` to let sign-in continue with any entered email/phone and password without OTP. This bypass is disabled in production builds. Keep it `false` when testing OTP or deploying.
+For local UI demos only, set both `REACT_APP_DEMO_AUTH=true` and `DEMO_AUTH_ENABLED=true` in `.env` to let sign-in continue with any entered email/phone and password without OTP. The backend demo-session endpoint is disabled by default; keep both flags `false` when testing OTP or deploying.
+
+## MySQL-backed transactions
+
+Transactions, accounts, and monthly budgets are saved to the signed-in user's MySQL account. Transaction details include description, amount, type, category, and date; accounts use name, type, and balance; budgets use category, monthly limit, and month. Set `REACT_APP_API_URL=http://localhost:8080`, configure the database values in `.env`, and start the Spring API from `backend` with `mvn spring-boot:run` before starting React. These list and create requests require an authenticated session. To use the Node OTP server instead, leave `REACT_APP_API_URL` empty and run `npm run server`; that server does not include transaction, account, or budget storage.
 
 ## Available Scripts
 

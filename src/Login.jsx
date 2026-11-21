@@ -203,13 +203,29 @@ export default function Login({ onLogin, onBackToLanding }) {
       return;
     }
     if (demoAuthEnabled && !signupMode) {
-      onLogin?.({
-        name: email.trim(),
-        email: otpChannel === "email" ? email : "",
-        phone: otpChannel === "sms" ? phone : "",
-        channel: otpChannel,
-        remember,
-      });
+      const recipient = otpChannel === "email" ? { email } : { phone };
+      setIsSendingOtp(true);
+      setAuthError("");
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/demo`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ channel: otpChannel, ...recipient }),
+        });
+        await parseApiResponse(response);
+        onLogin?.({
+          name: email.trim(),
+          email: otpChannel === "email" ? email : "",
+          phone: otpChannel === "sms" ? phone : "",
+          channel: otpChannel,
+          remember,
+        });
+      } catch (error) {
+        setAuthError(error.message);
+      } finally {
+        setIsSendingOtp(false);
+      }
       return;
     }
     await requestOtp();
@@ -336,7 +352,7 @@ export default function Login({ onLogin, onBackToLanding }) {
                 </div>}
                 {authError && <p className="lumi-auth-error" role="alert">{authError}</p>}
                 <button type="submit" className="lumi-submit-btn" disabled={isSendingOtp}>
-                  {isSendingOtp ? "Sending code..." : signupMode ? "Create Account" : `Continue with ${otpChannel === "email" ? "email" : "SMS"}`} <span>↗</span>
+                  {isSendingOtp ? demoAuthEnabled && !signupMode ? "Signing in..." : "Sending code..." : signupMode ? "Create Account" : `Continue with ${otpChannel === "email" ? "email" : "SMS"}`} <span>↗</span>
                 </button>
               </form>
 
