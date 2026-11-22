@@ -362,6 +362,7 @@ function ProfileView({
   preferences,
   profilePhoto,
   profilePhotoZoom,
+  onProfilePhotoView,
   onPreferenceChange,
   onProfileUpdated,
   onProfilePhotoChange,
@@ -389,9 +390,11 @@ function ProfileView({
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isOpeningCamera, setIsOpeningCamera] = useState(false);
+  const [isPhotoHoldActive, setIsPhotoHoldActive] = useState(false);
   const initialDisplayName = useRef(userInfo.name || "");
   const isMountedRef = useRef(true);
   const photoInputRef = useRef(null);
+  const photoViewTimeoutRef = useRef(null);
   const profileNameInputRef = useRef(null);
   const cameraVideoRef = useRef(null);
 
@@ -399,6 +402,9 @@ function ProfileView({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (photoViewTimeoutRef.current !== null) {
+        window.clearTimeout(photoViewTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -554,6 +560,24 @@ function ProfileView({
     reader.readAsDataURL(file);
   };
 
+  const startPhotoViewHold = () => {
+    if (!profilePhoto || photoViewTimeoutRef.current !== null) return;
+    setIsPhotoHoldActive(true);
+    photoViewTimeoutRef.current = window.setTimeout(() => {
+      photoViewTimeoutRef.current = null;
+      setIsPhotoHoldActive(false);
+      onProfilePhotoView();
+    }, 1000);
+  };
+
+  const cancelPhotoViewHold = () => {
+    if (photoViewTimeoutRef.current !== null) {
+      window.clearTimeout(photoViewTimeoutRef.current);
+      photoViewTimeoutRef.current = null;
+    }
+    setIsPhotoHoldActive(false);
+  };
+
   const handleOpenCamera = async () => {
     setCameraError("");
     setIsCameraReady(false);
@@ -634,11 +658,32 @@ function ProfileView({
       <div className="profile-grid">
         <section className="panel profile-card" aria-labelledby="profile-details-title">
           <div className="profile-card-heading">
-            <div className="avatar profile-photo">
-              {profilePhoto
-                ? <img src={profilePhoto} alt="" style={{ transform: `scale(${profilePhotoZoom})` }} />
-                : greetingName === "there" ? "U" : greetingName.charAt(0).toUpperCase()}
-            </div>
+            {profilePhoto ? (
+              <button
+                className={`avatar profile-photo profile-photo-preview-button ${isPhotoHoldActive ? "holding" : ""}`}
+                type="button"
+                aria-label="Press and hold for 1 second to view the original profile picture"
+                onPointerDown={startPhotoViewHold}
+                onPointerUp={cancelPhotoViewHold}
+                onPointerCancel={cancelPhotoViewHold}
+                onPointerLeave={cancelPhotoViewHold}
+                onKeyDown={(event) => {
+                  if (event.key === " " || event.key === "Enter") {
+                    event.preventDefault();
+                    startPhotoViewHold();
+                  }
+                }}
+                onKeyUp={cancelPhotoViewHold}
+                onBlur={cancelPhotoViewHold}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                <img src={profilePhoto} alt="" style={{ transform: `scale(${profilePhotoZoom})` }} />
+              </button>
+            ) : (
+              <div className="avatar profile-photo">
+                {greetingName === "there" ? "U" : greetingName.charAt(0).toUpperCase()}
+              </div>
+            )}
             <div>
               <h3 id="profile-details-title">Account details</h3>
               <p>Change your profile picture or display name.</p>
@@ -672,6 +717,14 @@ function ProfileView({
               </button>
             )}
           </div>
+          {profilePhoto && (
+            <p className="profile-settings-note">
+              Press and hold the picture for 1 second to view the original.
+            </p>
+          )}
+          {isPhotoHoldActive && (
+            <p className="profile-settings-note" role="status">Keep holding to view the original picture...</p>
+          )}
           {profilePhoto && (
             <label className="profile-photo-adjust" htmlFor="profile-photo-zoom">
               Adjust picture framing
@@ -1802,8 +1855,18 @@ function App() {
   const profilePhotoZoomStorageKey = `finsight-profile-photo-zoom:${(userInfo.email || userInfo.phone || "personal").trim().toLocaleLowerCase()}`;
   const [profilePhoto, setProfilePhoto] = useState("");
   const [profilePhotoZoom, setProfilePhotoZoom] = useState(1);
+  const [isProfilePhotoOpen, setIsProfilePhotoOpen] = useState(false);
   const notificationAudioRef = useRef(null);
   const previousAlertIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    if (!isProfilePhotoOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setIsProfilePhotoOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isProfilePhotoOpen]);
 
   useEffect(() => {
     setAlertPreferences({
@@ -2214,9 +2277,7 @@ function App() {
               className="profile-trigger"
               type="button"
               aria-label={`Open profile for ${greetingName}`}
-              onClick={() => {
-                navigateToPage("Profile");
-              }}
+              onClick={() => navigateToPage("Profile")}
             >
               <div className="avatar profile-photo">
                 {profilePhoto ? <img src={profilePhoto} alt="" style={{ transform: `scale(${profilePhotoZoom})` }} /> : avatarInitial}
@@ -2715,6 +2776,7 @@ function App() {
             preferences={alertPreferences}
             profilePhoto={profilePhoto}
             profilePhotoZoom={profilePhotoZoom}
+            onProfilePhotoView={() => setIsProfilePhotoOpen(true)}
             onPreferenceChange={handleAlertPreferenceChange}
             onProfileUpdated={handleProfileUpdated}
             onProfilePhotoChange={handleProfilePhotoChange}
@@ -2749,6 +2811,34 @@ function App() {
           onClose={() => setIsBudgetFormOpen(false)}
           onCreated={handleBudgetCreated}
         />
+      )}
+      {isProfilePhotoOpen && profilePhoto && (
+        <div
+          className="profile-photo-viewer-backdrop"
+          onClick={() => setIsProfilePhotoOpen(false)}
+        >
+          <section
+            className="profile-photo-viewer panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-photo-viewer-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="profile-photo-viewer-header">
+              <h2 id="profile-photo-viewer-title">Profile picture</h2>
+              <button
+                className="transaction-modal-close"
+                type="button"
+                aria-label="Close profile picture"
+                autoFocus
+                onClick={() => setIsProfilePhotoOpen(false)}
+              >
+                <X size={19} />
+              </button>
+            </div>
+            <img className="profile-photo-original" src={profilePhoto} alt={`Portrait of ${greetingName}`} />
+          </section>
+        </div>
       )}
     </div>
   );

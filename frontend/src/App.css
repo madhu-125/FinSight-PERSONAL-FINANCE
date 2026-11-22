@@ -1137,6 +1137,25 @@ button {
   transition: transform .18s ease;
 }
 
+.profile-photo-preview-button {
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+  touch-action: none;
+}
+
+.profile-photo-preview-button.holding {
+  outline: 2px solid #c1aaff;
+  outline-offset: 3px;
+  cursor: progress;
+}
+
+.profile-photo-preview-button:focus-visible,
+.top-avatar-button:focus-visible {
+  outline: 2px solid #c1aaff;
+  outline-offset: 3px;
+}
+
 .profile-photo-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1321,6 +1340,49 @@ button {
   padding: 20px;
   background: rgba(8, 9, 16, .78);
   backdrop-filter: blur(7px);
+}
+
+.profile-photo-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 9, 16, .86);
+  backdrop-filter: blur(7px);
+}
+
+.profile-photo-viewer {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  width: min(900px, 100%);
+  max-height: calc(100vh - 48px);
+  padding: 16px;
+  background: #1b1e2d;
+  border-color: #3a3e55;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .45);
+}
+
+.profile-photo-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-photo-viewer-header h2 {
+  font-size: 16px;
+}
+
+.profile-photo-original {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 130px);
+  margin: 0 auto;
+  border-radius: 8px;
+  object-fit: contain;
 }
 
 .camera-modal {

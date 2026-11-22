@@ -546,6 +546,9 @@ test('profile accepts a large photo and saves framing preferences', async () => 
   const PreviousFileReader = window.FileReader;
   const PreviousImage = window.Image;
   const canvasContext = { drawImage: jest.fn() };
+  let setTimeoutSpy;
+  let clearTimeoutSpy;
+  let photoHoldCallback = null;
   class MockFileReader {
     result = 'data:image/png;base64,source';
     onload = null;
@@ -588,9 +591,47 @@ test('profile accepts a large photo and saves framing preferences', async () => 
     expect(screen.getByLabelText('Adjust picture framing')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Adjust picture framing'), { target: { value: '1.5' } });
     expect(window.localStorage.getItem('finsight-profile-photo-zoom:fresh@example.com')).toBe('1.5');
+    const photoButton = screen.getByRole('button', {
+      name: 'Press and hold for 1 second to view the original profile picture',
+    });
+    const originalSetTimeout = window.setTimeout.bind(window);
+    const originalClearTimeout = window.clearTimeout.bind(window);
+    setTimeoutSpy = jest.spyOn(window, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+      if (delay === 1000) {
+        photoHoldCallback = callback;
+        return 999;
+      }
+      return originalSetTimeout(callback, delay, ...args);
+    });
+    clearTimeoutSpy = jest.spyOn(window, 'clearTimeout').mockImplementation((timeoutId) => {
+      if (timeoutId === 999) {
+        photoHoldCallback = null;
+        return;
+      }
+      originalClearTimeout(timeoutId);
+    });
+    fireEvent.pointerDown(photoButton);
+    expect(photoHoldCallback).toEqual(expect.any(Function));
+    expect(screen.queryByRole('dialog', { name: 'Profile picture' })).not.toBeInTheDocument();
+    fireEvent.pointerUp(photoButton);
+    expect(photoHoldCallback).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Profile picture' })).not.toBeInTheDocument();
+    fireEvent.pointerDown(photoButton);
+    act(() => photoHoldCallback());
+    const photoDialog = screen.getByRole('dialog', { name: 'Profile picture' });
+    expect(photoDialog.querySelector('img')).toHaveAttribute('alt', 'Portrait of Fresh User');
+    expect(photoDialog.querySelector('img')).not.toHaveAttribute('style');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Profile picture' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Dashboard' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open profile' }));
+    expect(screen.getByRole('heading', { name: 'Profile & settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Profile picture' })).not.toBeInTheDocument();
   } finally {
     window.FileReader = PreviousFileReader;
     window.Image = PreviousImage;
+    if (setTimeoutSpy) setTimeoutSpy.mockRestore();
+    if (clearTimeoutSpy) clearTimeoutSpy.mockRestore();
     getContext.mockRestore();
     toDataURL.mockRestore();
   }
