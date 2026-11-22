@@ -35,7 +35,7 @@ The root `render.yaml` defines a React static site and a Spring Boot Docker web 
 1. Make sure this repository's `main` branch contains `render.yaml` and `backend/Dockerfile`.
 2. In Render, choose **New > Blueprint**, connect `madhu-125/FinSight-PERSONAL-FINANCE`, and deploy the Blueprint from `main`.
 3. Enter your external MySQL JDBC URL, username, and password when prompted. Ensure that database provider permits connections from Render and that its MySQL server is reachable using the JDBC URL.
-4. Enter a Resend API key and a sender address verified by Resend. These are required for email signup and password recovery. Add Twilio credentials to the API service's environment if SMS verification is needed.
+4. Email signup and password recovery remain unavailable until you add `RESEND_API_KEY` and a Resend-verified `RESEND_FROM_EMAIL` to the API service's environment. Add Twilio credentials there if SMS verification is needed.
 5. Wait for both services to deploy. The frontend build receives the API hostname from the Blueprint; the API receives the frontend hostname for CORS and OAuth redirects.
 
 The Blueprint generates `OTP_SECRET` and enables secure session cookies for HTTPS. Keep `OTP_CONSOLE_DELIVERY_ENABLED` and `DEMO_AUTH_ENABLED` set to `false` in production. Free Render services may spin down when idle, so the first request after inactivity can take longer.

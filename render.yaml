@@ -28,10 +28,6 @@ services:
         value: "false"
       - key: DEMO_AUTH_ENABLED
         value: "false"
-      - key: RESEND_API_KEY
-        sync: false
-      - key: RESEND_FROM_EMAIL
-        sync: false
 
   - type: web
     name: finsight-web
