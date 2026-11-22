@@ -2,11 +2,12 @@ FROM maven:3.9.9-eclipse-temurin-17 AS build
 
 WORKDIR /app
 
+COPY maven-settings.xml /root/.m2/settings.xml
 COPY pom.xml .
 COPY src ./src
 COPY database ./database
 
-RUN mvn clean package -DskipTests
+RUN mvn -B -s /root/.m2/settings.xml clean package -DskipTests
 
 FROM eclipse-temurin:17-jre
 
