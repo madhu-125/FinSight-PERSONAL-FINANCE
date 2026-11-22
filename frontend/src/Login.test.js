@@ -233,7 +233,7 @@ test('email reset setup errors do not expose server configuration or social sign
   }
 });
 
-test('email sign-up sends a code and creates the account after verification', async () => {
+test('email sign-up creates the account without sending a verification code', async () => {
   const canvasContext = {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
@@ -245,9 +245,10 @@ test('email sign-up sends a code and creates the account after verification', as
   const requestAnimationFrame = jest.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
   const previousFetch = global.fetch;
   const onLogin = jest.fn();
-  global.fetch = jest.fn()
-    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ sent: true, resendAfterSeconds: 0 }) })
-    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ displayName: 'Casey Jones' }) });
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ displayName: 'Casey Jones' }),
+  });
 
   const { unmount } = render(<Login onLogin={onLogin} />);
   fireEvent.click(screen.getByRole('button', { name: 'Sign Up' }));
@@ -258,9 +259,6 @@ test('email sign-up sends a code and creates the account after verification', as
   fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
   try {
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: /verify and continue/i }));
-
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith({
       name: 'Casey Jones',
       email: 'casey@example.com',
@@ -268,18 +266,70 @@ test('email sign-up sends a code and creates the account after verification', as
       channel: 'email',
       remember: false,
     }));
-    expect(global.fetch).toHaveBeenNthCalledWith(1, `${API_BASE_URL}/api/auth/otp/send`, expect.objectContaining({
-      body: JSON.stringify({ channel: 'email', email: 'casey@example.com' }),
-    }));
-    expect(global.fetch).toHaveBeenNthCalledWith(2, `${API_BASE_URL}/api/auth/otp/verify`, expect.objectContaining({
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/register`, expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
       body: JSON.stringify({
         channel: 'email',
         email: 'casey@example.com',
-        code: '123456',
         displayName: 'Casey Jones',
         password: 'secure-password',
       }),
     }));
+    expect(screen.queryByLabelText('Verification code')).not.toBeInTheDocument();
+    expect(screen.getByText(/no verification code is required/i)).toBeInTheDocument();
+  } finally {
+    unmount();
+    getContext.mockRestore();
+    requestAnimationFrame.mockRestore();
+    global.fetch = previousFetch;
+  }
+});
+
+test('mobile sign-up creates the account without sending an SMS code', async () => {
+  const canvasContext = {
+    setTransform: jest.fn(),
+    clearRect: jest.fn(),
+    beginPath: jest.fn(),
+    arc: jest.fn(),
+    fill: jest.fn(),
+  };
+  const getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext);
+  const requestAnimationFrame = jest.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+  const previousFetch = global.fetch;
+  const onLogin = jest.fn();
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ displayName: 'Casey Jones' }),
+  });
+
+  const { unmount } = render(<Login onLogin={onLogin} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Sign Up' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Mobile' }));
+  fireEvent.change(screen.getByLabelText('Full Name'), { target: { value: 'Casey Jones' } });
+  fireEvent.change(screen.getByLabelText('Mobile phone number'), { target: { value: '9876543210' } });
+  fireEvent.change(screen.getByLabelText('Create password'), { target: { value: 'secure-password' } });
+  fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'secure-password' } });
+  fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+  try {
+    await waitFor(() => expect(onLogin).toHaveBeenCalledWith({
+      name: 'Casey Jones',
+      email: '',
+      phone: '+919876543210',
+      channel: 'sms',
+      remember: false,
+    }));
+    expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/register`, expect.objectContaining({
+      body: JSON.stringify({
+        channel: 'sms',
+        phone: '+919876543210',
+        displayName: 'Casey Jones',
+        password: 'secure-password',
+      }),
+    }));
+    expect(global.fetch).not.toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/otp/send`, expect.anything());
   } finally {
     unmount();
     getContext.mockRestore();

@@ -11,7 +11,7 @@ The React frontend owns page rendering and user interactions; the Spring backend
 
 ## Configure and run
 
-1. Copy `.env.example` to root `.env` and set your MySQL and OTP provider values.
+1. Copy `.env.example` to root `.env` and set your MySQL values and, optionally, password-reset delivery values.
 2. Copy `frontend/.env.example` to `frontend/.env` and set the API URL.
 3. Start the Spring API from `backend`:
 
@@ -26,7 +26,7 @@ The React frontend owns page rendering and user interactions; the Spring backend
    npm start
    ```
 
-Open `http://localhost:3000`. Sign-in requires the account password with either the email address or mobile number. OTP is not required for sign-in.
+Open `http://localhost:3000`. Sign-up and sign-in use an email address or mobile number with a password; neither requires a verification code.
 
 ## Deploy to Render
 
@@ -36,22 +36,22 @@ The root `render.yaml` defines a React static site and a Spring Boot Docker web 
 2. In Render, choose **New > Blueprint**, connect `madhu-125/FinSight-PERSONAL-FINANCE`, and deploy the Blueprint from `main`.
 3. Enter the external MySQL JDBC URL, username, and password when prompted. For TiDB Cloud, use the cluster's public endpoint on port `4000` and a JDBC URL such as `jdbc:mysql://<cluster-host>:4000/<database-name>?sslMode=VERIFY_IDENTITY&enabledTLSProtocols=TLSv1.2&serverTimezone=UTC`. Set the TiDB-provided username and password in the matching Render environment variables. Ensure the named database exists and the cluster accepts connections from Render.
    - If deploying the Blueprint has already completed, add or update `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` under the API service's **Environment** settings, then redeploy. Keep credentials in Render or your local ignored `.env` file; never commit them or paste them into chat.
-4. Email signup and password recovery remain unavailable until you add `RESEND_API_KEY` and a Resend-verified `RESEND_FROM_EMAIL` to the API service's environment. Add Twilio credentials there if SMS verification is needed.
+4. Password-based sign-up and sign-in do not need email or SMS delivery. To enable password recovery, add `RESEND_API_KEY` and a Resend-verified `RESEND_FROM_EMAIL` for email, or Twilio credentials for mobile, to the API service's environment.
 5. Wait for both services to deploy. The frontend build receives the API hostname from the Blueprint; the API receives the frontend hostname for CORS and OAuth redirects.
 
 The Blueprint generates `OTP_SECRET` and enables secure session cookies for HTTPS. Keep `OTP_CONSOLE_DELIVERY_ENABLED` and `DEMO_AUTH_ENABLED` set to `false` in production. Free Render services may spin down when idle, so the first request after inactivity can take longer.
 
-Email OTP delivery (used for signup and password resets) requires a valid `RESEND_API_KEY` and a sender address verified by Resend in the root `.env`. SMS verification requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER`. Restart the Spring API after changing these values. For local-only testing without delivery-provider credentials, `OTP_CONSOLE_DELIVERY_ENABLED=true` logs codes in the backend console; never enable this in production.
+Email OTP delivery for password resets requires a valid `RESEND_API_KEY` and a sender address verified by Resend in the root `.env`. Mobile password-reset codes require `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER`. Restart the Spring API after changing these values. For local-only reset testing without delivery-provider credentials, `OTP_CONSOLE_DELIVERY_ENABLED=true` logs codes in the backend console; never enable this in production.
 
 The backend Google OAuth integration requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the root `.env`; register `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI in Google Cloud. Social sign-in buttons are currently hidden from the UI.
 
-For mobile codes, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER` in the root `.env`, then restart the Spring API. These values must come from a Twilio account with SMS enabled; do not commit or share them.
+For mobile password-reset codes, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER` in the root `.env`, then restart the Spring API. These values must come from a Twilio account with SMS enabled; do not commit or share them.
 
 The optional Node server supports OTP authentication but not finance data storage. Use the Spring API for finance endpoints.
 
 ## Sign-in and profile
 
-Sign-up sends an OTP to the email address or mobile number before creating the account. Passwords must be at least 8 characters and no more than 72 UTF-8 bytes. Sign-in requires the account password for email or mobile; OTP is not used for sign-in. **Forgot password?** sends a one-time reset code to the registered contact. Profile name, age, gender, mobile contact, and address are stored with the signed-in account; the editable profile mobile is separate from the verified sign-in phone. Photos and notification preferences remain local to the browser. Photos can be uploaded or taken as a selfie, resized, and reframed in Profile.
+Sign-up creates the account directly with an email address or mobile number and password; no contact verification is required. Passwords must be at least 8 characters and no more than 72 UTF-8 bytes. Sign-in uses that password without an OTP. **Forgot password?** sends a one-time reset code to the registered contact. Profile name, age, gender, mobile contact, and address are stored with the signed-in account; the editable profile mobile is separate from the sign-in email or phone. Photos and notification preferences remain local to the browser. Photos can be uploaded or taken as a selfie, resized, and reframed in Profile.
 
 Budgets can be created as weekly, monthly, or fixed two-month periods. On the Budgets page, choose a period and download a PDF containing the saved budgets of that frequency.
 Transaction reports can be downloaded as a selected day, week, or month. Selfies use the browser camera when available; uploaded photos remain an alternative.

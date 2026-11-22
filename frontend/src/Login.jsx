@@ -100,14 +100,11 @@ export default function Login({ onLogin, onBackToLanding }) {
   const [remember, setRemember] = useState(false);
   const [otpChannel, setOtpChannel] = useState("email");
   const [phone, setPhone] = useState("");
-  const [otpStep, setOtpStep] = useState(false);
-  const [otpCode, setOtpCode] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
   const canvasRef = useRef(null);
@@ -195,35 +192,6 @@ export default function Login({ onLogin, onBackToLanding }) {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
-  const requestOtp = async () => {
-    setIsSubmittingAuth(true);
-    setAuthError("");
-    try {
-      const destination = otpChannel === "email" ? email : getPhoneNumber(phone);
-      const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
-      const response = await fetch(`${API_BASE_URL}/api/auth/otp/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ channel: otpChannel, ...recipient }),
-      });
-      const result = await parseApiResponse(response);
-      setOtpStep(true);
-      setOtpCode("");
-      setResendSeconds(result.resendAfterSeconds || 60);
-      showToast(`Verification code sent to ${destination}.`);
-    } catch (error) {
-      if (error.retryAfterSeconds) setResendSeconds(error.retryAfterSeconds);
-      setAuthError(
-        signupMode && otpChannel === "email" && error.message.includes("RESEND_API_KEY")
-          ? "Email verification can't be sent yet. Please contact the app administrator to configure email delivery."
-          : error.message
-      );
-    } finally {
-      setIsSubmittingAuth(false);
-    }
-  };
-
   const requestPasswordReset = async (event) => {
     event?.preventDefault();
     setAuthError("");
@@ -292,6 +260,16 @@ export default function Login({ onLogin, onBackToLanding }) {
     }
   };
 
+  const completeLogin = (result) => {
+    onLogin?.({
+      name: result.displayName || (otpChannel === "email" ? email.split("@")[0] : phone) || "there",
+      email: otpChannel === "email" ? email : "",
+      phone: otpChannel === "sms" ? getPhoneNumber(phone) : "",
+      channel: otpChannel,
+      remember,
+    });
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (signupMode && !name.trim()) {
@@ -306,64 +284,31 @@ export default function Login({ onLogin, onBackToLanding }) {
       setAuthError("The passwords do not match.");
       return;
     }
-    if (!signupMode) {
-      const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
-      setIsSubmittingAuth(true);
-      setAuthError("");
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/password/login`, {
+
+    const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
+    setIsSubmittingAuth(true);
+    setAuthError("");
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/auth/password/${signupMode ? "register" : "login"}`,
+        {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ channel: otpChannel, ...recipient, password }),
-        });
-        const result = await parseApiResponse(response);
-        onLogin?.({
-          name: result.displayName || (otpChannel === "email" ? email.split("@")[0] : phone) || "there",
-          email: otpChannel === "email" ? email : "",
-          phone: otpChannel === "sms" ? getPhoneNumber(phone) : "",
-          channel: otpChannel,
-          remember,
-        });
-      } catch (error) {
-        setAuthError(error.message);
-      } finally {
-        setIsSubmittingAuth(false);
-      }
-      return;
-    }
-    await requestOtp();
-  };
-
-  const handleVerifyOtp = async (event) => {
-    event.preventDefault();
-    setAuthError("");
-    setIsVerifyingOtp(true);
-    try {
-      const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
-      const response = await fetch(`${API_BASE_URL}/api/auth/otp/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          channel: otpChannel,
-          ...recipient,
-          code: otpCode,
-          ...(signupMode ? { displayName: name.trim(), password } : {}),
-        }),
-      });
+          body: JSON.stringify({
+            channel: otpChannel,
+            ...recipient,
+            ...(signupMode ? { displayName: name.trim() } : {}),
+            password,
+          }),
+        }
+      );
       const result = await parseApiResponse(response);
-      onLogin?.({
-        name: result.displayName || (signupMode ? name : email.split("@")[0] || "there"),
-        email: otpChannel === "email" ? email : "",
-        phone: otpChannel === "sms" ? getPhoneNumber(phone) : "",
-        channel: otpChannel,
-        remember,
-      });
+      completeLogin(result);
     } catch (error) {
       setAuthError(error.message);
     } finally {
-      setIsVerifyingOtp(false);
+      setIsSubmittingAuth(false);
     }
   };
 
@@ -381,9 +326,7 @@ export default function Login({ onLogin, onBackToLanding }) {
             <h1>
               {forgotPasswordMode
                 ? resetOtpSent ? "Choose a new password" : "Reset your password"
-                : otpStep
-                  ? `Verify your ${otpChannel === "email" ? "email" : "phone"}`
-                  : signupMode ? "Create account" : "Welcome back"}
+                : signupMode ? "Create account" : "Welcome back"}
             </h1>
             <p className="lumi-subtitle">
               {forgotPasswordMode
@@ -392,10 +335,8 @@ export default function Login({ onLogin, onBackToLanding }) {
                 : otpChannel === "email"
                   ? "We'll send a reset code if an account exists for that email address."
                   : "We'll send a verification code if an account exists for that number."
-                : otpStep
-                  ? `Enter the 6-digit code sent to ${otpChannel === "email" ? email : phone}.`
-                  : signupMode
-                    ? `Verify your ${otpChannel === "email" ? "email" : "mobile number"} and create your FinSight account.`
+                : signupMode
+                    ? "Create an account with your email or mobile number and password. No verification code is required."
                   : "Sign in securely with your password."}
             </p>
           </div>
@@ -538,7 +479,7 @@ export default function Login({ onLogin, onBackToLanding }) {
                 Back to sign in
               </button>
             </>
-          ) : !otpStep ? (
+          ) : (
             <>
               <div className="lumi-tabs">
                 <button
@@ -675,58 +616,12 @@ export default function Login({ onLogin, onBackToLanding }) {
                 <button type="submit" className="lumi-submit-btn" disabled={isSubmittingAuth}>
                   {isSubmittingAuth
                     ? signupMode
-                      ? otpChannel === "email" ? "Creating account..." : "Sending code..."
+                      ? "Creating account..."
                       : "Signing in..."
                     : signupMode ? "Create Account" : "Sign In"}
                   {" "}<span>↗</span>
                 </button>
               </form>
-
-            </>
-          ) : (
-            <>
-              <form onSubmit={handleVerifyOtp}>
-                <div className="lumi-input-group">
-                  <label htmlFor="lumi-otp">Verification code</label>
-                  <input
-                    id="lumi-otp"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
-                    value={otpCode}
-                    onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
-                    placeholder="6-digit code"
-                    required
-                  />
-                </div>
-                {authError && <p className="lumi-auth-error" role="alert">{authError}</p>}
-                <button type="submit" className="lumi-submit-btn" disabled={isVerifyingOtp || otpCode.length !== 6}>
-                  {isVerifyingOtp ? "Verifying..." : "Verify and continue"} <span>↗</span>
-                </button>
-              </form>
-              <div className="lumi-otp-actions">
-                <button
-                  type="button"
-                  className="lumi-text-link"
-                  onClick={() => {
-                    setOtpStep(false);
-                    setOtpCode("");
-                    setAuthError("");
-                  }}
-                >
-                  Change verification method or recipient
-                </button>
-                <button
-                  type="button"
-                  className="lumi-text-link"
-                  onClick={requestOtp}
-                  disabled={isResettingPassword || resendSeconds > 0}
-                >
-                  {isResettingPassword ? "Sending..." : resendSeconds > 0 ? `Resend in ${resendSeconds}s` : "Resend code"}
-                </button>
-              </div>
             </>
           )}
           <p className="lumi-footer-text">By continuing, you agree to our <a href="#terms" onClick={(e) => e.preventDefault()}>Terms</a> &amp; <a href="#privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a>.</p>

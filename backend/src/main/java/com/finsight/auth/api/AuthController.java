@@ -73,7 +73,15 @@ public class AuthController {
 
     @PostMapping("/password/login")
     public ResponseEntity<Map<String, Object>> passwordLogin(@RequestBody PasswordLoginRequest request) {
-        LoginResult result = authService.passwordLogin(request);
+        return authenticatedResponse(authService.passwordLogin(request));
+    }
+
+    @PostMapping("/password/register")
+    public ResponseEntity<Map<String, Object>> passwordRegister(@RequestBody PasswordRegisterRequest request) {
+        return authenticatedResponse(authService.passwordRegister(request));
+    }
+
+    private ResponseEntity<Map<String, Object>> authenticatedResponse(LoginResult result) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("authenticated", true);
         body.put("channel", result.channel());

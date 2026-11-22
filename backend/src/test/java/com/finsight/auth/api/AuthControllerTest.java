@@ -4,7 +4,9 @@ package com.finsight.auth.api;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -176,6 +178,65 @@ class AuthControllerTest {
             .andExpect(jsonPath("$.authenticated").value(true))
             .andExpect(jsonPath("$.phone").value("+14155550123"))
             .andExpect(jsonPath("$.displayName").value("SMS User"));
+    }
+
+    @Test
+    void passwordRegistrationCreatesEmailAccountWithoutSendingOtp() throws Exception {
+        String password = "StrongPass123!";
+        MvcResult registration = mockMvc.perform(post("/api/auth/password/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"email","email":"new-user@example.com","displayName":"New User","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Set-Cookie", containsString("HttpOnly")))
+            .andExpect(jsonPath("$.authenticated").value(true))
+            .andExpect(jsonPath("$.email").value("new-user@example.com"))
+            .andExpect(jsonPath("$.displayName").value("New User"))
+            .andReturn();
+
+        verify(delivery, never()).send(anyString(), anyString(), anyString());
+        var user = users.findByChannelAndDestination("email", "new-user@example.com").orElseThrow();
+        assertNotEquals(password, user.getPasswordHash());
+        assertTrue(passwordEncoder.matches(password, user.getPasswordHash()));
+
+        Cookie sessionCookie = registration.getResponse().getCookie("finsight_session");
+        mockMvc.perform(get("/api/auth/session").cookie(sessionCookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.authenticated").value(true))
+            .andExpect(jsonPath("$.email").value("new-user@example.com"));
+
+        mockMvc.perform(post("/api/auth/password/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"email","email":"new-user@example.com","displayName":"New User","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value(containsString("already exists")));
+    }
+
+    @Test
+    void passwordRegistrationAndLoginAcceptMobileWithoutOtp() throws Exception {
+        String password = "StrongPass123!";
+        mockMvc.perform(post("/api/auth/password/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"sms","phone":"7337492378","displayName":"Mobile User","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.phone").value("+917337492378"))
+            .andExpect(jsonPath("$.displayName").value("Mobile User"));
+
+        mockMvc.perform(post("/api/auth/password/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"sms","phone":"7337492378","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.authenticated").value(true))
+            .andExpect(jsonPath("$.phone").value("+917337492378"));
+
+        verify(delivery, never()).send(anyString(), anyString(), anyString());
     }
 
     @Test

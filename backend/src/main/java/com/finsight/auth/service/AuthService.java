@@ -4,6 +4,7 @@ package com.finsight.auth.service;
 import com.finsight.auth.api.AuthException;
 import com.finsight.auth.api.PasswordChangeRequest;
 import com.finsight.auth.api.PasswordLoginRequest;
+import com.finsight.auth.api.PasswordRegisterRequest;
 import com.finsight.auth.api.PasswordResetRequest;
 import com.finsight.auth.api.ProfileUpdateRequest;
 import com.finsight.auth.api.OtpSendRequest;
@@ -137,6 +138,35 @@ public class AuthService {
         }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         users.save(user);
+    }
+
+    @Transactional
+    public LoginResult passwordRegister(PasswordRegisterRequest request) {
+        if (request == null) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Account details are required.");
+        }
+        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        String displayName = normalizeDisplayName(request.displayName());
+        if (displayName == null) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter a display name.");
+        }
+        String password = validateNewPassword(request.password());
+        if (users.findByChannelAndDestination(recipient.channel(), recipient.destination()).isPresent()) {
+            throw new AuthException(
+                HttpStatus.CONFLICT,
+                "An account with this email or mobile number already exists. Sign in instead."
+            );
+        }
+
+        Instant now = Instant.now();
+        UserAccount user = new UserAccount(
+            recipient.channel(),
+            recipient.destination(),
+            displayName,
+            now
+        );
+        user.setPasswordHash(passwordEncoder.encode(password));
+        return createSession(users.save(user), now);
     }
 
     @Transactional(noRollbackFor = AuthException.class)
