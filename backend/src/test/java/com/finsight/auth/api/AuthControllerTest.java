@@ -1,6 +1,7 @@
 package com.finsight.auth.api;
 // Verifies authentication and finance API behavior with an isolated test database.
 
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -38,7 +39,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-@SpringBootTest
+@SpringBootTest(properties = "finsight.session.secure=true")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AuthControllerTest {
@@ -189,7 +190,11 @@ class AuthControllerTest {
                     {"channel":"email","email":"new-user@example.com","displayName":"New User","password":"%s"}
                     """.formatted(password)))
             .andExpect(status().isOk())
-            .andExpect(header().string("Set-Cookie", containsString("HttpOnly")))
+            .andExpect(header().string("Set-Cookie", allOf(
+                containsString("HttpOnly"),
+                containsString("Secure"),
+                containsString("SameSite=None")
+            )))
             .andExpect(jsonPath("$.authenticated").value(true))
             .andExpect(jsonPath("$.email").value("new-user@example.com"))
             .andExpect(jsonPath("$.displayName").value("New User"))

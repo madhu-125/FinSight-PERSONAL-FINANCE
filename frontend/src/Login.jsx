@@ -280,11 +280,6 @@ export default function Login({ onLogin, onBackToLanding }) {
       setAuthError("Use at least 8 characters for your password.");
       return;
     }
-    if (signupMode && password !== confirmPassword) {
-      setAuthError("The passwords do not match.");
-      return;
-    }
-
     const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
     setIsSubmittingAuth(true);
     setAuthError("");
@@ -581,20 +576,6 @@ export default function Login({ onLogin, onBackToLanding }) {
                     </button>
                   </div>
                 </div>
-                {signupMode && (
-                  <div className="lumi-input-group">
-                    <label htmlFor="lumi-confirm-password">Confirm password</label>
-                    <input
-                      id="lumi-confirm-password"
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(event) => setConfirmPassword(event.target.value)}
-                      minLength={8}
-                      autoComplete="new-password"
-                      required
-                    />
-                  </div>
-                )}
                 {!signupMode && <div className="lumi-form-options">
                   <label className="lumi-remember"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember me</label>
                   <button

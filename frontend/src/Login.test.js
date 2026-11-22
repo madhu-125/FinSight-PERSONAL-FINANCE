@@ -233,7 +233,7 @@ test('email reset setup errors do not expose server configuration or social sign
   }
 });
 
-test('email sign-up creates the account without sending a verification code', async () => {
+test('email sign-up creates the account with one password entry and no verification code', async () => {
   const canvasContext = {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
@@ -255,7 +255,6 @@ test('email sign-up creates the account without sending a verification code', as
   fireEvent.change(screen.getByLabelText('Full Name'), { target: { value: 'Casey Jones' } });
   fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'casey@example.com' } });
   fireEvent.change(screen.getByLabelText('Create password'), { target: { value: 'secure-password' } });
-  fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'secure-password' } });
   fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
   try {
@@ -278,6 +277,7 @@ test('email sign-up creates the account without sending a verification code', as
       }),
     }));
     expect(screen.queryByLabelText('Verification code')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Confirm password')).not.toBeInTheDocument();
     expect(screen.getByText(/no verification code is required/i)).toBeInTheDocument();
   } finally {
     unmount();
@@ -310,7 +310,6 @@ test('mobile sign-up creates the account without sending an SMS code', async () 
   fireEvent.change(screen.getByLabelText('Full Name'), { target: { value: 'Casey Jones' } });
   fireEvent.change(screen.getByLabelText('Mobile phone number'), { target: { value: '9876543210' } });
   fireEvent.change(screen.getByLabelText('Create password'), { target: { value: 'secure-password' } });
-  fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'secure-password' } });
   fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
   try {
@@ -329,6 +328,7 @@ test('mobile sign-up creates the account without sending an SMS code', async () 
         password: 'secure-password',
       }),
     }));
+    expect(screen.queryByLabelText('Confirm password')).not.toBeInTheDocument();
     expect(global.fetch).not.toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/otp/send`, expect.anything());
   } finally {
     unmount();

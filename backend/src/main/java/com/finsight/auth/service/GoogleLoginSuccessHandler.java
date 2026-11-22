@@ -62,7 +62,7 @@ public class GoogleLoginSuccessHandler implements AuthenticationSuccessHandler {
             ResponseCookie.from(COOKIE_NAME, result.token())
                 .httpOnly(true)
                 .secure(secureCookie)
-                .sameSite("Lax")
+                .sameSite(secureCookie ? "None" : "Lax")
                 .path("/")
                 .maxAge(SESSION_LIFETIME)
                 .build()
