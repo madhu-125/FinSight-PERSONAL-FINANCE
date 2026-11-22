@@ -1,6 +1,8 @@
 # Database migrations
 
-These Flyway scripts define the schema used by the Spring API. Migration files are versioned and may already be applied to a local database, so do not edit an existing script; add a new numbered migration for schema changes.
+These Flyway scripts define the schema used by the Spring API. Do not edit a migration after it has succeeded in a shared database; add a new numbered migration for schema changes. A failed migration may be corrected before it is retried.
+
+On TiDB, do not add a column and reference it in an index in the same `ALTER TABLE` statement. TiDB validates all changes against the table's schema before the statement runs, so add the column in one statement and create the index in a later statement.
 
 | Migration | Responsibility |
 | --- | --- |
