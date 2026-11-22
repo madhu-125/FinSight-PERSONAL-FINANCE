@@ -10,10 +10,7 @@ services:
       - key: SESSION_COOKIE_SECURE
         value: "true"
       - key: CLIENT_ORIGIN
-        fromService:
-          type: web
-          name: finsight-web
-          property: host
+        value: https://finsight-web-p9bg.onrender.com
       - key: SPRING_DATASOURCE_URL
         sync: false
       - key: SPRING_DATASOURCE_USERNAME
