@@ -211,8 +211,8 @@ export default function Login({ onLogin, onBackToLanding }) {
     } catch (error) {
       if (error.retryAfterSeconds) setResendSeconds(error.retryAfterSeconds);
       setAuthError(
-        otpChannel === "email" && error.message.includes("RESEND_API_KEY")
-          ? "Email password reset is unavailable right now. Please contact the app administrator to configure email delivery."
+        otpChannel === "email" && error.message.includes("Email delivery is not configured")
+          ? "This app cannot send reset emails yet. Ask the administrator to configure a verified email sender or SMTP service."
           : error.message
       );
     } finally {

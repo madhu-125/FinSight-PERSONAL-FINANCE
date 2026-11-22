@@ -9,10 +9,15 @@ import com.finsight.auth.api.PasswordResetRequest;
 import com.finsight.auth.api.ProfileUpdateRequest;
 import com.finsight.auth.api.OtpSendRequest;
 import com.finsight.auth.api.OtpVerifyRequest;
+import com.finsight.auth.model.AuthHistory;
 import com.finsight.auth.model.AuthSession;
 import com.finsight.auth.model.OtpChallenge;
 import com.finsight.auth.model.UserAccount;
+import com.finsight.auth.repository.AuthHistoryRepository;
 import com.finsight.auth.repository.AuthSessionRepository;
+import com.finsight.auth.repository.FinanceAccountRepository;
+import com.finsight.auth.repository.FinanceTransactionRepository;
+import com.finsight.auth.repository.MonthlyBudgetRepository;
 import com.finsight.auth.repository.OtpChallengeRepository;
 import com.finsight.auth.repository.UserAccountRepository;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +27,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import javax.crypto.Mac;
@@ -42,8 +48,12 @@ public class AuthService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OtpChallengeRepository challenges;
+    private final AuthHistoryRepository history;
     private final UserAccountRepository users;
     private final AuthSessionRepository sessions;
+    private final FinanceTransactionRepository transactions;
+    private final FinanceAccountRepository accounts;
+    private final MonthlyBudgetRepository budgets;
     private final OtpDeliveryService delivery;
     private final PasswordEncoder passwordEncoder;
     private final String otpSecret;
@@ -51,8 +61,12 @@ public class AuthService {
 
     public AuthService(
         OtpChallengeRepository challenges,
+        AuthHistoryRepository history,
         UserAccountRepository users,
         AuthSessionRepository sessions,
+        FinanceTransactionRepository transactions,
+        FinanceAccountRepository accounts,
+        MonthlyBudgetRepository budgets,
         OtpDeliveryService delivery,
         PasswordEncoder passwordEncoder,
         @Value("${finsight.otp.secret}") String otpSecret
@@ -61,8 +75,12 @@ public class AuthService {
             throw new IllegalStateException("OTP_SECRET must contain at least 32 characters.");
         }
         this.challenges = challenges;
+        this.history = history;
         this.users = users;
         this.sessions = sessions;
+        this.transactions = transactions;
+        this.accounts = accounts;
+        this.budgets = budgets;
         this.delivery = delivery;
         this.passwordEncoder = passwordEncoder;
         this.otpSecret = otpSecret;
@@ -388,8 +406,33 @@ public class AuthService {
     @Transactional
     public void logout(String token) {
         if (token != null && !token.isBlank() && token.length() <= 128) {
+            getSession(token).ifPresent(session ->
+                history.save(new AuthHistory(session.userId(), "LOGOUT", Instant.now()))
+            );
             sessions.deleteByTokenHash(hashSessionToken(token));
         }
+    }
+
+    @Transactional(readOnly = true)
+    public List<AuthHistoryEntry> getAuthHistory(String token) {
+        UserAccount user = requireCurrentUser(token);
+        return history.findTop100ByUserIdOrderByOccurredAtDescIdDesc(user.getId())
+            .stream()
+            .map(entry -> new AuthHistoryEntry(entry.getEventType(), entry.getOccurredAt()))
+            .toList();
+    }
+
+    @Transactional
+    public void deleteAccount(String token) {
+        UserAccount user = requireCurrentUser(token);
+        Long userId = user.getId();
+        transactions.deleteByUserId(userId);
+        accounts.deleteByUserId(userId);
+        budgets.deleteByUserId(userId);
+        history.deleteByUserId(userId);
+        sessions.deleteByUserId(userId);
+        challenges.deleteByChannelAndDestination(user.getChannel(), user.getDestination());
+        users.delete(user);
     }
 
     private Recipient resolveRecipient(String channelValue, String emailValue, String phoneValue) {
@@ -493,6 +536,7 @@ public class AuthService {
             now.plus(SESSION_LIFETIME),
             now
         ));
+        history.save(new AuthHistory(user.getId(), "LOGIN", now));
         return new LoginResult(
             token,
             user.getChannel(),
@@ -540,4 +584,6 @@ public class AuthService {
         String mobileNumber,
         String address
     ) {}
+
+    public record AuthHistoryEntry(String eventType, Instant occurredAt) {}
 }

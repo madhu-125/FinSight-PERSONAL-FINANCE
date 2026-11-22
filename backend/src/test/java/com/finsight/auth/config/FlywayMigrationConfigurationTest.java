@@ -34,6 +34,22 @@ class FlywayMigrationConfigurationTest {
     }
 
     @Test
+    void repairsVersionSixWhenAppliedChecksumDiffers() {
+        Flyway flyway = mock(Flyway.class);
+        MigrationInfo migration = migration("6", MigrationState.SUCCESS);
+        when(migration.isApplied()).thenReturn(true);
+        when(migration.isChecksumMatching()).thenReturn(false);
+        MigrationInfoService info = migrationInfo(migration);
+        when(flyway.info()).thenReturn(info);
+
+        strategy.migrate(flyway);
+
+        InOrder order = inOrder(flyway);
+        order.verify(flyway).repair();
+        order.verify(flyway).migrate();
+    }
+
+    @Test
     void doesNotRepairUnrelatedFailedMigrations() {
         Flyway flyway = mock(Flyway.class);
         MigrationInfoService info = migrationInfo(

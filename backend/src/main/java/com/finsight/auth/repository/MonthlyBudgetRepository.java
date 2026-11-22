@@ -16,4 +16,6 @@ public interface MonthlyBudgetRepository extends JpaRepository<MonthlyBudget, Lo
         String periodType,
         LocalDate periodStart
     );
+
+    long deleteByUserId(Long userId);
 }

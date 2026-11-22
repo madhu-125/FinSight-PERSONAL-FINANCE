@@ -4,6 +4,7 @@ package com.finsight.auth.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finsight.auth.api.AuthException;
+import jakarta.mail.MessagingException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -18,7 +19,11 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
+import org.springframework.mail.MailException;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -31,6 +36,9 @@ public class OtpDeliveryService {
     private final ObjectMapper objectMapper;
     private final String resendApiKey;
     private final String resendFromEmail;
+    private final String smtpHost;
+    private final String mailFrom;
+    private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final String twilioAccountSid;
     private final String twilioAuthToken;
     private final String twilioFromNumber;
@@ -40,6 +48,9 @@ public class OtpDeliveryService {
         ObjectMapper objectMapper,
         @Value("${finsight.resend.api-key:}") String resendApiKey,
         @Value("${finsight.resend.from-email:}") String resendFromEmail,
+        @Value("${spring.mail.host:}") String smtpHost,
+        @Value("${finsight.mail.from:}") String mailFrom,
+        ObjectProvider<JavaMailSender> mailSenderProvider,
         @Value("${finsight.twilio.account-sid:}") String twilioAccountSid,
         @Value("${finsight.twilio.auth-token:}") String twilioAuthToken,
         @Value("${finsight.twilio.from-number:}") String twilioFromNumber,
@@ -48,6 +59,9 @@ public class OtpDeliveryService {
         this.objectMapper = objectMapper;
         this.resendApiKey = resendApiKey;
         this.resendFromEmail = resendFromEmail;
+        this.smtpHost = smtpHost;
+        this.mailFrom = mailFrom;
+        this.mailSenderProvider = mailSenderProvider;
         this.twilioAccountSid = twilioAccountSid;
         this.twilioAuthToken = twilioAuthToken;
         this.twilioFromNumber = twilioFromNumber;
@@ -63,18 +77,28 @@ public class OtpDeliveryService {
     }
 
     private void sendEmail(String email, String code) {
-        if (resendApiKey.isBlank() || resendFromEmail.isBlank()) {
-            if (consoleDeliveryEnabled) {
-                LOGGER.warn("Email OTP delivery fallback enabled; send an email provider is not configured.");
-                LOGGER.info("Development email OTP for {}: {}", email, code);
-                return;
-            }
-            throw new AuthException(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                "Email verification needs RESEND_API_KEY and a verified RESEND_FROM_EMAIL in the server .env. Restart the backend after configuring them."
-            );
-        }
         String text = "Your FinSight verification code is " + code + ". It expires in 10 minutes.";
+        if (!resendApiKey.isBlank() && !resendFromEmail.isBlank()) {
+            sendResendEmail(email, code, text);
+            return;
+        }
+        JavaMailSender mailSender = smtpHost.isBlank() ? null : mailSenderProvider.getIfAvailable();
+        if (mailSender != null && !mailFrom.isBlank()) {
+            sendSmtpEmail(mailSender, email, code, text);
+            return;
+        }
+        if (consoleDeliveryEnabled) {
+            LOGGER.warn("Email OTP delivery fallback enabled; send an email provider is not configured.");
+            LOGGER.info("Development email OTP for {}: {}", email, code);
+            return;
+        }
+        throw new AuthException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "Email delivery is not configured. Set a Resend API key and verified sender, or configure SMTP_HOST and SMTP_FROM_EMAIL on the server."
+        );
+    }
+
+    private void sendResendEmail(String email, String code, String text) {
         String body;
         try {
             body = objectMapper.writeValueAsString(Map.of(
@@ -96,6 +120,24 @@ public class OtpDeliveryService {
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build();
         sendRequest(request, "email");
+    }
+
+    private void sendSmtpEmail(JavaMailSender mailSender, String email, String code, String text) {
+        try {
+            var message = mailSender.createMimeMessage();
+            var helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
+            helper.setFrom(mailFrom);
+            helper.setTo(email);
+            helper.setSubject("Your FinSight verification code");
+            helper.setText(text, false);
+            mailSender.send(message);
+        } catch (MessagingException | MailException exception) {
+            LOGGER.warn("SMTP email delivery failed: {}", exception.getClass().getSimpleName());
+            throw new AuthException(
+                HttpStatus.BAD_GATEWAY,
+                "Could not send the verification email. Check the SMTP delivery configuration."
+            );
+        }
     }
 
     private void sendSms(String phone, String code) {

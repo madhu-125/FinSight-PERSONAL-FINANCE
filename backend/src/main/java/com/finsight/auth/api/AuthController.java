@@ -10,6 +10,7 @@ import com.finsight.auth.service.AuthService.SessionInfo;
 import java.net.URI;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +18,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -206,6 +208,23 @@ public class AuthController {
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie("", Duration.ZERO).toString())
             .body(Map.of("loggedOut", true));
+    }
+
+    @GetMapping("/history")
+    public List<AuthService.AuthHistoryEntry> history(
+        @CookieValue(name = COOKIE_NAME, required = false) String token
+    ) {
+        return authService.getAuthHistory(token);
+    }
+
+    @DeleteMapping("/account")
+    public ResponseEntity<Map<String, Object>> deleteAccount(
+        @CookieValue(name = COOKIE_NAME, required = false) String token
+    ) {
+        authService.deleteAccount(token);
+        return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE, sessionCookie("", Duration.ZERO).toString())
+            .body(Map.of("deleted", true));
     }
 
     private ResponseCookie sessionCookie(String value, Duration maxAge) {

@@ -19,7 +19,8 @@ public class FlywayMigrationConfiguration {
             boolean versionSixNeedsRepair = Arrays.stream(migrations)
                 .anyMatch(migration -> isVersionSix(migration)
                     && (migration.getState() == MigrationState.FAILED
-                        || migration.getState() == MigrationState.OUTDATED));
+                        || migration.getState() == MigrationState.OUTDATED
+                        || (migration.isApplied() && !migration.isChecksumMatching())));
             boolean otherMigrationNeedsRepair = Arrays.stream(migrations)
                 .anyMatch(migration -> !isVersionSix(migration)
                     && (migration.getState() == MigrationState.FAILED

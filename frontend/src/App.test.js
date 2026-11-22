@@ -1,5 +1,5 @@
 // Covers the React application UI, API interactions, and profile workflows.
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from './App';
 import { API_BASE_URL } from './apiBaseUrl';
 import { jsPDF } from 'jspdf';
@@ -195,7 +195,79 @@ test('adding a starting account balance updates the dashboard total', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Save account' }));
 
   expect(await screen.findByText('₹12,345.67')).toBeInTheDocument();
-  expect(screen.getByText('Across 1 account')).toBeInTheDocument();
+  expect(screen.getByText(/Current balance/)).toBeInTheDocument();
+});
+
+test('dashboard totals filter by the selected month and year', async () => {
+  const now = new Date();
+  const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-15`;
+  global.fetch.mockImplementation((url) => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve(
+      url.endsWith('/api/auth/session')
+        ? { authenticated: true, email: 'period@example.com' }
+        : url.endsWith('/api/transactions')
+          ? [
+            { id: 1, description: 'Current income', amount: 1200, type: 'income', transactionDate: currentDate },
+            { id: 2, description: 'Current expense', amount: 400, type: 'expense', transactionDate: currentDate },
+            { id: 3, description: 'Last year income', amount: 300, type: 'income', transactionDate: '2025-03-15' },
+          ]
+          : url.endsWith('/api/accounts')
+            ? [{ id: 4, name: 'Everyday', balance: 2500 }]
+            : []
+    ),
+  }));
+  window.localStorage.setItem('finsight-authenticated', 'true');
+
+  render(<App />);
+  await screen.findByRole('heading', { name: /welcome, period/i });
+  expect(await within(screen.getByText('Monthly Total Income').closest('.stat-card')).findByText('₹1,200.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Monthly Total Expenses').closest('.stat-card')).findByText('₹400.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Monthly Net Cash Flow').closest('.stat-card')).findByText('₹800.00')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'WEEKLY' } });
+  fireEvent.change(screen.getByLabelText('Week containing'), { target: { value: currentDate } });
+  expect(await within(screen.getByText('Weekly Total Balance').closest('.stat-card')).findByText('₹2,500.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Weekly Total Income').closest('.stat-card')).findByText('₹1,200.00')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'YEARLY' } });
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Year' }), { target: { value: '2025' } });
+  expect(await within(screen.getByText('Yearly Total Income').closest('.stat-card')).findByText('₹300.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Yearly Total Expenses').closest('.stat-card')).findByText('₹0.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Yearly Total Balance').closest('.stat-card')).findByText('₹1,700.00')).toBeInTheDocument();
+  expect(screen.getByText(/Estimated period-end/)).toBeInTheDocument();
+});
+
+test('profile links open login history and the separate settings page', async () => {
+  global.fetch.mockImplementation((url) => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve(
+      url.endsWith('/api/auth/session')
+        ? { authenticated: true, email: 'profile@example.com' }
+        : url.endsWith('/api/auth/profile')
+          ? { displayName: 'Profile User', email: 'profile@example.com' }
+          : url.endsWith('/api/auth/history')
+            ? [{ eventType: 'LOGIN', occurredAt: '2026-11-23T12:00:00Z' }]
+            : []
+    ),
+  }));
+  window.localStorage.setItem('finsight-authenticated', 'true');
+
+  render(<App />);
+  await screen.findByRole('button', { name: 'Sign out' });
+  fireEvent.click(screen.getByRole('button', { name: 'Open profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+  expect(screen.getByRole('alertdialog', { name: 'Delete your FinSight account?' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(screen.getByRole('button', { name: /review recent account sign-ins/i }));
+  expect(await screen.findByRole('heading', { name: 'Login History', level: 2 })).toBeInTheDocument();
+  expect(await screen.findByText('Signed in')).toBeInTheDocument();
+
+  fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: 'Settings' }));
+  expect(await screen.findByRole('heading', { name: 'Settings', level: 2 })).toBeInTheDocument();
+  expect(screen.getByRole('checkbox', { name: 'High expense alerts' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to profile' }));
+  expect(await screen.findByRole('heading', { name: 'Profile & settings' })).toBeInTheDocument();
 });
 
 test('accounts and budgets can be entered and persisted through the API', async () => {
@@ -312,11 +384,20 @@ test('AI insights, alerts, profile settings, and Dashboard navigation use saved 
   fireEvent.click(screen.getByRole('button', { name: 'Pull the cord' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Complete sign in' }));
   await screen.findByRole('button', { name: 'Sign out' }, { timeout: 3000 });
+  expect(screen.getByRole('button', { name: 'Go back' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: /^AI Insights/ }));
 
   expect(await screen.findByText('Cash-flow cushion is tight')).toBeInTheDocument();
   expect(screen.getByText('Food is your top spending category')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Go to Dashboard' }));
+  expect(await screen.findByRole('heading', { name: /welcome, fresh user!/i })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /^AI Assistant/ }));
+  expect(await screen.findByRole('heading', { name: 'AI Assistant', level: 2 })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'What was my top spending category?' }));
+  expect(await screen.findByText(/Food is your top recorded spending category.*₹900\.00/)).toBeInTheDocument();
+  expect(screen.getByText(/Answers use only your saved app data and stay in this app/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
   expect(await screen.findByRole('heading', { name: /welcome, fresh user!/i })).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Notifications, 3 alerts' }));
@@ -326,10 +407,8 @@ test('AI insights, alerts, profile settings, and Dashboard navigation use saved 
 
   fireEvent.click(screen.getByRole('button', { name: 'Open profile' }));
   expect(screen.getByRole('heading', { name: 'Profile & settings' })).toBeInTheDocument();
-  const editDetails = await screen.findByRole('button', { name: 'Edit details' });
-  await waitFor(() => expect(editDetails).toBeEnabled());
-  expect(screen.getAllByText('fresh@example.com')).toHaveLength(2);
-  const highExpenseAlerts = screen.getByRole('checkbox', { name: 'High expense alerts' });
+  fireEvent.click(screen.getByRole('button', { name: 'Settings', exact: true }));
+  const highExpenseAlerts = await screen.findByRole('checkbox', { name: 'High expense alerts' });
   fireEvent.click(highExpenseAlerts);
   expect(highExpenseAlerts).not.toBeChecked();
   expect(window.localStorage.getItem('finsight-alerts:fresh@example.com:highExpenseAlerts')).toBe('false');
@@ -471,6 +550,7 @@ test('signed-in users can change their password using only new and confirm field
   fireEvent.click(await screen.findByRole('button', { name: 'Complete sign in' }));
   await screen.findByRole('button', { name: 'Sign out' }, { timeout: 3000 });
   fireEvent.click(screen.getByRole('button', { name: 'Open profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Settings', exact: true }));
 
   expect(await screen.findByLabelText('New password')).toBeInTheDocument();
   expect(screen.getByLabelText('Confirm new password')).toBeInTheDocument();

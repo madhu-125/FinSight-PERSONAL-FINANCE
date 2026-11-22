@@ -196,7 +196,7 @@ test('password reset requests a code and submits a matching new password', async
   }
 });
 
-test('email reset setup errors do not expose server configuration or social sign-in', async () => {
+test('email reset setup errors explain the missing provider without exposing server configuration', async () => {
   const canvasContext = {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
@@ -210,7 +210,7 @@ test('email reset setup errors do not expose server configuration or social sign
   global.fetch = jest.fn().mockResolvedValue({
     ok: false,
     json: () => Promise.resolve({
-      error: 'Email verification needs RESEND_API_KEY and a verified RESEND_FROM_EMAIL.',
+      error: 'Email delivery is not configured. Set a Resend API key and verified sender, or configure SMTP_HOST and SMTP_FROM_EMAIL on the server.',
     }),
   });
 
@@ -221,8 +221,8 @@ test('email reset setup errors do not expose server configuration or social sign
 
   try {
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/email password reset is unavailable/i);
-    expect(alert).not.toHaveTextContent(/RESEND_API_KEY/);
+    expect(alert).toHaveTextContent(/cannot send reset emails yet/i);
+    expect(alert).not.toHaveTextContent(/RESEND_API_KEY|SMTP_HOST/);
     expect(screen.queryByRole('button', { name: 'Google' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Apple' })).not.toBeInTheDocument();
   } finally {

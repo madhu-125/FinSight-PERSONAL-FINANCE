@@ -15,5 +15,7 @@ public interface OtpChallengeRepository extends JpaRepository<OtpChallenge, Stri
     @Query("select challenge from OtpChallenge challenge where challenge.challengeKey = :key")
     Optional<OtpChallenge> findForUpdate(@Param("key") String key);
 
+    long deleteByChannelAndDestination(String channel, String destination);
+
     long deleteByExpiresAtBefore(Instant now);
 }

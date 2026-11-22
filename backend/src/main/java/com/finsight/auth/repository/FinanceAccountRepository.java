@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface FinanceAccountRepository extends JpaRepository<FinanceAccount, Long> {
     List<FinanceAccount> findByUserIdOrderByNameAsc(Long userId);
+
+    long deleteByUserId(Long userId);
 }

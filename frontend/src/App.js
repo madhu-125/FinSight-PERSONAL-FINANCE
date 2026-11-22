@@ -11,14 +11,19 @@ import {
   Settings,
   Bell,
   UserRound,
+  History,
+  MessageCircle,
+  Send,
   Search,
   Plus,
   TrendingUp,
   TrendingDown,
   Menu,
   X,
+  ArrowLeft,
   ArrowUpRight,
   CalendarDays,
+  Trash2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -44,6 +49,7 @@ const navigation = [
   { name: "Analytics", icon: ChartNoAxesCombined },
   { name: "Budgets", icon: Target },
   { name: "AI Insights", icon: Sparkles },
+  { name: "AI Assistant", icon: MessageCircle },
   { name: "Profile", icon: UserRound },
 ];
 
@@ -110,6 +116,35 @@ function getAnalyticsData(transactions) {
 
 function dateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getDashboardPeriodRange(period, selectedDate) {
+  const now = new Date();
+  const selected = selectedDate ? new Date(`${selectedDate}T00:00:00`) : now;
+  const date = Number.isNaN(selected.getTime()) ? now : selected;
+  let start;
+  let end;
+  if (period === "WEEKLY") {
+    start = new Date(date);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    end = new Date(start);
+    end.setDate(end.getDate() + 6);
+  } else if (period === "YEARLY") {
+    start = new Date(date.getFullYear(), 0, 1);
+    end = new Date(date.getFullYear(), 11, 31);
+  } else {
+    start = new Date(date.getFullYear(), date.getMonth(), 1);
+    end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  }
+  const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  const label = period === "YEARLY"
+    ? String(date.getFullYear())
+    : `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
+  return { start: dateKey(start), end: dateKey(end), label };
 }
 
 function getBudgetPeriodRange(budget) {
@@ -251,6 +286,35 @@ function getFinancialAlerts(monthSummary, preferences) {
   return alerts;
 }
 
+function readStoredNotifications(storageKey) {
+  const storedValue = window.localStorage.getItem(storageKey);
+  if (storedValue === null) return [];
+
+  let notifications;
+  try {
+    notifications = JSON.parse(storedValue);
+  } catch {
+    throw new Error("Saved notifications could not be read. Clear this account's browser notification data to continue.");
+  }
+  if (
+    !Array.isArray(notifications)
+    || notifications.some((notification) => (
+      !notification
+      || typeof notification.id !== "string"
+      || typeof notification.sourceId !== "string"
+      || typeof notification.title !== "string"
+      || typeof notification.message !== "string"
+      || typeof notification.tone !== "string"
+      || typeof notification.createdAt !== "string"
+      || typeof notification.read !== "boolean"
+      || typeof notification.dismissed !== "boolean"
+    ))
+  ) {
+    throw new Error("Saved notifications have an invalid format. Clear this account's browser notification data to continue.");
+  }
+  return notifications;
+}
+
 function getAiInsights(monthSummary) {
   if (!monthSummary.hasActivity) {
     return [{
@@ -356,7 +420,119 @@ function AiInsightsView({ monthSummary, onViewTransactions }) {
   );
 }
 
+function getAssistantResponse(query, context) {
+  const normalized = query.toLocaleLowerCase();
+  const period = context.rangeLabel;
+  const expensesByCategory = context.transactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((totals, transaction) => {
+      const category = transaction.category?.trim() || "Uncategorized";
+      totals.set(category, (totals.get(category) || 0) + Number(transaction.amount || 0));
+      return totals;
+    }, new Map());
+
+  if (/top|most|category|where/.test(normalized) && /spend|expense|category|where/.test(normalized)) {
+    const topCategory = [...expensesByCategory.entries()].sort((left, right) => right[1] - left[1])[0];
+    return topCategory
+      ? `${topCategory[0]} is your top recorded spending category for ${period}, at ${CURRENCY_FORMATTER.format(topCategory[1])}.`
+      : `There are no recorded expenses for ${period} yet, so I can't identify a top spending category.`;
+  }
+  if (/income|earn|salary|received/.test(normalized)) {
+    return `You recorded ${CURRENCY_FORMATTER.format(context.income)} in income for ${period}.`;
+  }
+  if (/expense|spend|spent|purchase/.test(normalized)) {
+    return `You recorded ${CURRENCY_FORMATTER.format(context.expenses)} in expenses for ${period}.`;
+  }
+  if (/cash flow|cashflow|net|left over|surplus/.test(normalized)) {
+    const net = context.income - context.expenses;
+    return `Your recorded net cash flow for ${period} is ${CURRENCY_FORMATTER.format(net)} (${CURRENCY_FORMATTER.format(context.income)} income minus ${CURRENCY_FORMATTER.format(context.expenses)} expenses).`;
+  }
+  if (/budget|limit/.test(normalized)) {
+    return context.budgets.length
+      ? `You have ${context.budgets.length} saved budget${context.budgets.length === 1 ? "" : "s"}. Your recorded expenses for ${period} total ${CURRENCY_FORMATTER.format(context.expenses)}. Review the Budgets page to compare spending with each budget's period and limit.`
+      : "You don't have any saved budgets yet. Add one on the Budgets page to start tracking category limits.";
+  }
+  if (/balance|account/.test(normalized)) {
+    return `Your account balance is ${CURRENCY_FORMATTER.format(context.balance)}. This is your current combined balance, not a historical balance for ${period}.`;
+  }
+  return "I can help with your recorded income, expenses, top spending category, net cash flow, budgets, or account balance. Try one of the suggested questions.";
+}
+
+function AiAssistantView({ context }) {
+  const [messages, setMessages] = useState([{
+    role: "assistant",
+    text: `Hi! I can help you understand your saved finances for ${context.rangeLabel}. What would you like to know?`,
+  }]);
+  const [question, setQuestion] = useState("");
+  const suggestions = [
+    "How much did I spend?",
+    "What was my income?",
+    "What was my top spending category?",
+    "How is my net cash flow?",
+  ];
+
+  const askQuestion = (value) => {
+    const prompt = value.trim();
+    if (!prompt) return;
+    setMessages((current) => [
+      ...current,
+      { role: "user", text: prompt },
+      { role: "assistant", text: getAssistantResponse(prompt, context) },
+    ]);
+    setQuestion("");
+  };
+
+  return (
+    <section className="assistant-page">
+      <div className="transactions-page-header">
+        <div>
+          <h2>AI Assistant</h2>
+          <p>Ask questions about your saved financial activity for {context.rangeLabel}.</p>
+        </div>
+      </div>
+      <div className="assistant-chat panel">
+        <div className="assistant-messages" aria-live="polite" aria-label="Conversation">
+          {messages.map((message, index) => (
+            <div className={`assistant-message assistant-message-${message.role}`} key={`${message.role}-${index}`}>
+              {message.role === "assistant" && <span className="assistant-message-icon"><Sparkles size={16} /></span>}
+              <p>{message.text}</p>
+            </div>
+          ))}
+        </div>
+        <div className="assistant-suggestions" aria-label="Suggested questions">
+          {suggestions.map((suggestion) => (
+            <button type="button" key={suggestion} onClick={() => askQuestion(suggestion)}>
+              {suggestion}
+            </button>
+          ))}
+        </div>
+        <form
+          className="assistant-composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            askQuestion(question);
+          }}
+        >
+          <label className="visually-hidden" htmlFor="assistant-question">Ask FinSight Assistant</label>
+          <input
+            id="assistant-question"
+            type="text"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="Ask about your finances..."
+          />
+          <button type="submit" aria-label="Send question" disabled={!question.trim()}>
+            <Send size={17} />
+          </button>
+        </form>
+        <p className="assistant-disclaimer">Answers use only your saved app data and stay in this app. They are informational, not financial advice.</p>
+      </div>
+    </section>
+  );
+}
+
 function ProfileView({
+  pageMode,
   userInfo,
   greetingName,
   preferences,
@@ -368,6 +544,8 @@ function ProfileView({
   onProfilePhotoChange,
   onProfilePhotoZoomChange,
   onLogout,
+  onDeleteAccount,
+  onNavigate,
 }) {
   const [displayName, setDisplayName] = useState(userInfo.name || "");
   const [age, setAge] = useState("");
@@ -384,6 +562,12 @@ function ProfileView({
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
+  const [loginHistory, setLoginHistory] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
   const [photoError, setPhotoError] = useState("");
   const [cameraError, setCameraError] = useState("");
   const [cameraStream, setCameraStream] = useState(null);
@@ -444,6 +628,28 @@ function ProfileView({
       active = false;
     };
   }, [onProfileUpdated, userInfo.email, userInfo.phone]);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoadingHistory(true);
+    setHistoryError("");
+    getApiJson("/api/auth/history")
+      .then((history) => {
+        if (!Array.isArray(history)) {
+          throw new Error("The server returned an invalid login history response.");
+        }
+        if (active) setLoginHistory(history);
+      })
+      .catch((error) => {
+        if (active) setHistoryError(error.message);
+      })
+      .finally(() => {
+        if (active) setIsLoadingHistory(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userInfo.email, userInfo.phone]);
 
   const resetProfileForm = () => {
     setDisplayName(userInfo.name || "");
@@ -517,6 +723,17 @@ function ProfileView({
       setPasswordError(error.message);
     } finally {
       setIsSavingPassword(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true);
+    setDeleteAccountError("");
+    try {
+      await onDeleteAccount();
+    } catch (error) {
+      setDeleteAccountError(error.message);
+      setIsDeletingAccount(false);
     }
   };
 
@@ -650,12 +867,26 @@ function ProfileView({
     <section className="profile-page">
       <div className="transactions-page-header">
         <div>
-          <h2>Profile &amp; settings</h2>
-          <p>Update your details, sign-in security, and personal preferences.</p>
+          <h2>{pageMode === "Profile" ? "Profile & settings" : pageMode}</h2>
+          <p>
+            {pageMode === "Login History"
+              ? "Review recent sign-ins and manage account access."
+              : pageMode === "Settings"
+                ? "Manage your password, alerts, and account preferences."
+                : "Update your details, sign-in security, and personal preferences."}
+          </p>
         </div>
-        <button className="profile-signout-button" type="button" onClick={onLogout}>Sign out</button>
+        <div className="profile-header-actions">
+          {pageMode === "Settings" && (
+            <button className="profile-secondary-button" type="button" onClick={() => onNavigate("Profile")}>
+              <ArrowLeft size={15} /> Back to profile
+            </button>
+          )}
+          <button className="profile-signout-button" type="button" onClick={onLogout}>Sign out</button>
+        </div>
       </div>
-      <div className="profile-grid">
+      <div className={`profile-grid ${pageMode === "Login History" ? "profile-history-grid" : ""}`}>
+        {pageMode === "Profile" && (
         <section className="panel profile-card" aria-labelledby="profile-details-title">
           <div className="profile-card-heading">
             {profilePhoto ? (
@@ -845,6 +1076,53 @@ function ProfileView({
           </div>
           {profileMessage && <p className="profile-form-message" role="status">{profileMessage}</p>}
         </section>
+        )}
+        {pageMode === "Profile" && (
+        <div className="profile-settings-column profile-shortcuts-column">
+          <section className="panel profile-card profile-shortcuts-card" aria-labelledby="profile-shortcuts-title">
+            <div className="profile-card-heading">
+              <div className="settings-card-icon"><UserRound size={19} /></div>
+              <div>
+                <h3 id="profile-shortcuts-title">Account &amp; security</h3>
+                <p>Quick access to your account activity and preferences.</p>
+              </div>
+            </div>
+            <button className="profile-link-card" type="button" onClick={() => onNavigate("Login History")}>
+              <span className="settings-card-icon"><History size={19} /></span>
+              <span><strong>Login history</strong><small>Review recent account sign-ins</small></span>
+              <ArrowUpRight size={17} />
+            </button>
+            <button className="profile-link-card" type="button" onClick={() => onNavigate("Settings")}>
+              <span className="settings-card-icon"><Settings size={19} /></span>
+              <span><strong>Settings</strong><small>Manage password and alerts</small></span>
+              <ArrowUpRight size={17} />
+            </button>
+          </section>
+          <section className="panel profile-card profile-danger-card" aria-labelledby="delete-account-title">
+            <div className="profile-card-heading">
+              <div className="settings-card-icon profile-danger-icon"><Trash2 size={19} /></div>
+              <div>
+                <h3 id="delete-account-title">Delete FinSight account</h3>
+                <p>Permanently delete this account and its financial data.</p>
+              </div>
+            </div>
+            <p className="profile-settings-note">
+              This removes your profile, transactions, finance accounts, budgets, and login history. It cannot be undone.
+            </p>
+            <button
+              className="profile-delete-button"
+              type="button"
+              onClick={() => {
+                setDeleteAccountError("");
+                setIsDeleteConfirmOpen(true);
+              }}
+            >
+              Delete my account
+            </button>
+          </section>
+        </div>
+        )}
+        {pageMode === "Settings" && (
         <div className="profile-settings-column">
           <section className="panel profile-card" aria-labelledby="profile-security-title">
             <div className="profile-card-heading">
@@ -932,9 +1210,97 @@ function ProfileView({
             </label>
             <p className="profile-settings-note">Preferences are saved in this browser for this signed-in account.</p>
           </section>
+          <section className="panel profile-card profile-shortcuts-card">
+            <h3>Account activity</h3>
+            <button className="profile-link-card" type="button" onClick={() => onNavigate("Login History")}>
+              <span className="settings-card-icon"><History size={19} /></span>
+              <span><strong>Login history</strong><small>Review recent account sign-ins</small></span>
+              <ArrowUpRight size={17} />
+            </button>
+          </section>
         </div>
+        )}
+        {pageMode === "Login History" && (
+        <section className="panel profile-card">
+          <div className="profile-card-heading">
+            <div className="settings-card-icon"><History size={19} /></div>
+            <div>
+              <h3 id="login-history-title">Login history</h3>
+              <p>Recent successful sign-ins and sign-outs for this account.</p>
+            </div>
+          </div>
+          {isLoadingHistory ? (
+            <p className="profile-settings-note" role="status">Loading login history...</p>
+          ) : historyError ? (
+            <p className="profile-form-error" role="alert">{historyError}</p>
+          ) : loginHistory.length ? (
+            <ol className="login-history-list">
+              {loginHistory.map((entry, index) => (
+                <li key={`${entry.eventType}-${entry.occurredAt}-${index}`}>
+                  <strong>{entry.eventType === "LOGIN" ? "Signed in" : "Signed out"}</strong>
+                  <time dateTime={entry.occurredAt}>
+                    {new Date(entry.occurredAt).toLocaleString("en-IN", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </time>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="profile-settings-note">No sign-in history is available yet.</p>
+          )}
+          <div className="profile-edit-actions">
+            <button className="profile-secondary-button" type="button" onClick={() => onNavigate("Profile")}>
+              Back to profile
+            </button>
+            <button className="add-button" type="button" onClick={() => onNavigate("Settings")}>
+              Settings <ArrowUpRight size={16} />
+            </button>
+          </div>
+        </section>
+        )}
       </div>
     </section>
+    {isDeleteConfirmOpen && (
+      <div className="transaction-modal-backdrop">
+        <section
+          className="transaction-modal panel account-delete-modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="confirm-account-delete-title"
+          aria-describedby="confirm-account-delete-description"
+        >
+          <div className="transaction-modal-header">
+            <div>
+              <h2 id="confirm-account-delete-title">Delete your FinSight account?</h2>
+              <p id="confirm-account-delete-description">
+                Your profile and all financial records and sign-in history will be permanently deleted.
+              </p>
+            </div>
+          </div>
+          {deleteAccountError && <p className="profile-form-error" role="alert">{deleteAccountError}</p>}
+          <div className="transaction-form-actions">
+            <button
+              className="profile-secondary-button"
+              type="button"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+              disabled={isDeletingAccount}
+            >
+              Cancel
+            </button>
+            <button
+              className="profile-delete-button"
+              type="button"
+              onClick={handleDeleteAccount}
+              disabled={isDeletingAccount}
+            >
+              {isDeletingAccount ? "Deleting account..." : "Permanently delete"}
+            </button>
+          </div>
+        </section>
+      </div>
+    )}
     {isCameraOpen && (
       <div className="camera-modal-backdrop">
         <section className="camera-modal panel" role="dialog" aria-modal="true" aria-labelledby="camera-modal-title">
@@ -1030,7 +1396,9 @@ function findPageForQuery(query) {
     { name: "Analytics", aliases: ["analysis", "report", "reports", "cash flow", "cashflow"] },
     { name: "Budgets", aliases: ["budget", "spending plan"] },
     { name: "AI Insights", aliases: ["ai", "insight", "insights", "financial insights"] },
-    { name: "Profile", aliases: ["user", "settings", "account settings"] },
+    { name: "AI Assistant", aliases: ["assistant", "finance assistant", "financial assistant"] },
+    { name: "Profile", aliases: ["user", "account", "account profile"] },
+    { name: "Settings", aliases: ["settings", "preferences", "account settings"] },
   ];
   const exactMatch = pages.find((page) => (
     [page.name.toLocaleLowerCase(), ...page.aliases].includes(normalized)
@@ -1180,9 +1548,10 @@ function TransactionList({ transactions }) {
     year: "numeric",
   });
 
-  return transactions.map((transaction) => (
-    <div className="transaction-row" key={transaction.id}>
-      <div className={`transaction-icon ${transaction.type === "income" ? "green" : "purple"}`}>
+  const accentClasses = ["transaction-purple", "transaction-blue", "transaction-pink", "transaction-cyan", "transaction-green"];
+  return transactions.map((transaction, index) => (
+    <div className={`transaction-row ${accentClasses[index % accentClasses.length]}`} key={transaction.id}>
+      <div className="transaction-icon">
         <Wallet size={19} />
       </div>
       <div className="transaction-details">
@@ -1824,6 +2193,7 @@ function App() {
         : window.localStorage.getItem(AUTH_STORAGE_KEY) === "true" ? "session-check" : "landing"
   );
   const [activePage, setActivePage] = useState("Dashboard");
+  const [pageHistory, setPageHistory] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const [logoutError, setLogoutError] = useState("");
@@ -1841,23 +2211,31 @@ function App() {
   const [isBudgetFormOpen, setIsBudgetFormOpen] = useState(false);
   const [budgetPdfPeriod, setBudgetPdfPeriod] = useState("WEEKLY");
   const [budgetPdfError, setBudgetPdfError] = useState("");
+  const [dashboardPeriod, setDashboardPeriod] = useState("MONTHLY");
+  const [dashboardPeriodDate, setDashboardPeriodDate] = useState(dateKey(new Date()));
   const [transactionPdfPeriod, setTransactionPdfPeriod] = useState("DAILY");
   const [transactionPdfDate, setTransactionPdfDate] = useState(dateKey(new Date()));
   const [transactionPdfError, setTransactionPdfError] = useState("");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationStoreOwner, setNotificationStoreOwner] = useState("");
+  const [notificationStorageError, setNotificationStorageError] = useState("");
   const [alertPreferences, setAlertPreferences] = useState({
     highExpenseAlerts: true,
     lowCashFlowAlerts: true,
     notificationSound: false,
   });
   const preferenceStorageKey = `finsight-alerts:${(userInfo.email || userInfo.phone || "personal").trim().toLocaleLowerCase()}`;
-  const profilePhotoStorageKey = `finsight-profile-photo:${(userInfo.email || userInfo.phone || "personal").trim().toLocaleLowerCase()}`;
-  const profilePhotoZoomStorageKey = `finsight-profile-photo-zoom:${(userInfo.email || userInfo.phone || "personal").trim().toLocaleLowerCase()}`;
+  const accountStorageKey = (userInfo.email || userInfo.phone || "personal").trim().toLocaleLowerCase();
+  const notificationStorageKey = `finsight-notifications:${accountStorageKey}`;
+  const profilePhotoStorageKey = `finsight-profile-photo:${accountStorageKey}`;
+  const profilePhotoZoomStorageKey = `finsight-profile-photo-zoom:${accountStorageKey}`;
   const [profilePhoto, setProfilePhoto] = useState("");
   const [profilePhotoZoom, setProfilePhotoZoom] = useState(1);
   const [isProfilePhotoOpen, setIsProfilePhotoOpen] = useState(false);
   const notificationAudioRef = useRef(null);
   const previousAlertIdsRef = useRef(new Set());
+  const previousNotificationAlertIdsRef = useRef(new Set());
 
   useEffect(() => {
     if (!isProfilePhotoOpen) return undefined;
@@ -1875,6 +2253,29 @@ function App() {
       notificationSound: window.localStorage.getItem(`${preferenceStorageKey}:notificationSound`) === "true",
     });
   }, [preferenceStorageKey]);
+
+  useEffect(() => {
+    try {
+      setNotifications(readStoredNotifications(notificationStorageKey));
+      setNotificationStoreOwner(notificationStorageKey);
+      setNotificationStorageError("");
+    } catch (error) {
+      setNotifications([]);
+      setNotificationStoreOwner("");
+      setNotificationStorageError(error.message);
+    }
+    previousNotificationAlertIdsRef.current = new Set();
+  }, [notificationStorageKey]);
+
+  useEffect(() => {
+    if (notificationStoreOwner !== notificationStorageKey) return;
+    try {
+      window.localStorage.setItem(notificationStorageKey, JSON.stringify(notifications));
+      setNotificationStorageError("");
+    } catch {
+      setNotificationStorageError("Notification changes could not be saved in this browser.");
+    }
+  }, [notificationStorageKey, notificationStoreOwner, notifications]);
 
   useEffect(() => {
     setProfilePhoto(window.localStorage.getItem(profilePhotoStorageKey) || "");
@@ -2048,7 +2449,20 @@ function App() {
   };
 
   const navigateToPage = (page) => {
+    if (page !== activePage) {
+      setPageHistory((current) => [...current, activePage]);
+    }
     setActivePage(page);
+    setMenuOpen(false);
+    setIsNotificationsOpen(false);
+    setSearchError("");
+  };
+
+  const handleGoBack = () => {
+    const previousPage = pageHistory[pageHistory.length - 1];
+    if (!previousPage) return;
+    setPageHistory((current) => current.slice(0, -1));
+    setActivePage(previousPage);
     setMenuOpen(false);
     setIsNotificationsOpen(false);
     setSearchError("");
@@ -2058,7 +2472,7 @@ function App() {
     event.preventDefault();
     const page = findPageForQuery(searchQuery);
     if (!page) {
-      setSearchError("No matching page found. Try Dashboard, Transactions, Accounts, Analytics, Budgets, AI Insights, or Profile.");
+      setSearchError("No matching page found. Try Dashboard, Transactions, Accounts, Analytics, Budgets, AI Insights, AI Assistant, Profile, or Settings.");
       return;
     }
     navigateToPage(page);
@@ -2083,15 +2497,78 @@ function App() {
         setIsBudgetFormOpen(false);
         setIsNotificationsOpen(false);
         setActivePage("Dashboard");
+        setPageHistory([]);
         setMenuOpen(false);
         setCurrentPage("landing");
       })
       .catch((error) => setLogoutError(error.message));
   };
 
+  const handleDeleteAccount = async () => {
+    const response = await fetch(`${API_BASE_URL}/api/auth/account`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    await parseApiResponse(response);
+
+    let browserDataCleanupFailed = false;
+    try {
+      [
+        AUTH_STORAGE_KEY,
+        `${preferenceStorageKey}:highExpenseAlerts`,
+        `${preferenceStorageKey}:lowCashFlowAlerts`,
+        `${preferenceStorageKey}:notificationSound`,
+        profilePhotoStorageKey,
+        profilePhotoZoomStorageKey,
+        notificationStorageKey,
+      ].forEach((key) => window.localStorage.removeItem(key));
+    } catch (error) {
+      if (!(error instanceof DOMException)) throw error;
+      browserDataCleanupFailed = true;
+    }
+
+    setTransactions([]);
+    setAccounts([]);
+    setBudgets([]);
+    setNotifications([]);
+    setUserInfo({ email: "", phone: "", name: "" });
+    setIsNotificationsOpen(false);
+    setActivePage("Dashboard");
+    setPageHistory([]);
+    setCurrentPage("landing");
+    if (browserDataCleanupFailed) {
+      setLogoutError("Your account was deleted, but some browser-only preferences could not be cleared.");
+    }
+  };
+
   const dashboardAnalytics = getAnalyticsData(transactions);
   const currentMonthSummary = getCurrentMonthSummary(transactions, budgets);
   const financialAlerts = getFinancialAlerts(currentMonthSummary, alertPreferences);
+  const activeAlertIds = new Set(financialAlerts.map((alert) => alert.id));
+  const activeAlertSignature = financialAlerts.map((alert) => alert.id).join("|");
+  const currentNotifications = notificationStoreOwner === notificationStorageKey ? notifications : [];
+  const visibleNotifications = currentNotifications.filter((notification) => !notification.dismissed);
+  const unreadNotificationCount = visibleNotifications.filter((notification) => !notification.read).length;
+  const toggleNotifications = () => {
+    const opening = !isNotificationsOpen;
+    if (opening && notificationStoreOwner === notificationStorageKey) {
+      setNotifications((current) => current.map((notification) => (
+        notification.dismissed || notification.read
+          ? notification
+          : { ...notification, read: true }
+      )));
+    }
+    setIsNotificationsOpen(opening);
+  };
+  const deleteNotification = (notificationId) => {
+    setNotifications((current) => current.flatMap((notification) => {
+      if (notification.id !== notificationId) return [notification];
+      if (activeAlertIds.has(notification.sourceId)) {
+        return [{ ...notification, read: true, dismissed: true }];
+      }
+      return [];
+    }));
+  };
   const transactionPdfRange = getTransactionReportRange(transactionPdfPeriod, transactionPdfDate);
   const transactionPdfCount = transactions.filter((transaction) => (
     transaction.transactionDate >= transactionPdfRange.start && transaction.transactionDate <= transactionPdfRange.end
@@ -2100,6 +2577,30 @@ function App() {
     (budget.periodType || "MONTHLY").toUpperCase() === budgetPdfPeriod
   )).length;
   const accountBalance = accounts.reduce((total, account) => total + Number(account.balance || 0), 0);
+  const dashboardPeriodRange = getDashboardPeriodRange(dashboardPeriod, dashboardPeriodDate);
+  const dashboardPeriodTransactions = transactions.filter((transaction) => (
+    transaction.transactionDate >= dashboardPeriodRange.start
+    && transaction.transactionDate <= dashboardPeriodRange.end
+  ));
+  const periodIncome = dashboardPeriodTransactions
+    .filter((transaction) => transaction.type === "income")
+    .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+  const periodExpenses = dashboardPeriodTransactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+  const todayDate = dateKey(new Date());
+  const balanceCutoff = dashboardPeriodRange.end < todayDate ? dashboardPeriodRange.end : todayDate;
+  const activityAfterPeriod = transactions
+    .filter((transaction) => transaction.transactionDate > balanceCutoff && transaction.transactionDate <= todayDate)
+    .reduce((net, transaction) => (
+      net + (transaction.type === "income" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0))
+    ), 0);
+  const periodBalance = accountBalance - activityAfterPeriod;
+  const dashboardPeriodName = {
+    WEEKLY: "Weekly",
+    MONTHLY: "Monthly",
+    YEARLY: "Yearly",
+  }[dashboardPeriod];
   const hasFinancialData = transactions.length > 0 || accounts.length > 0 || budgets.length > 0;
   const greetingName = getGreetingName(userInfo);
   const profileContact = userInfo.email || userInfo.phone || "Personal account";
@@ -2112,34 +2613,72 @@ function App() {
   }).format(new Date());
   const stats = [
     {
-      title: "Total Balance",
-      value: CURRENCY_FORMATTER.format(accountBalance),
-      description: accounts.length === 0 ? "Add an account to see your balance" : `Across ${accounts.length} account${accounts.length === 1 ? "" : "s"}`,
+      title: `${dashboardPeriodName} Total Balance`,
+      value: CURRENCY_FORMATTER.format(periodBalance),
+      description: accounts.length === 0
+        ? "Add an account to see your balance"
+        : dashboardPeriodRange.end < todayDate
+          ? `Estimated period-end · ${dashboardPeriodRange.label}`
+          : `Current balance · ${dashboardPeriodRange.label}`,
       icon: Wallet,
       className: "balance-card",
     },
     {
-      title: "Total Income",
-      value: CURRENCY_FORMATTER.format(dashboardAnalytics.income),
-      description: "From your saved transactions",
+      title: `${dashboardPeriodName} Total Income`,
+      value: CURRENCY_FORMATTER.format(periodIncome),
+      description: `For ${dashboardPeriodRange.label}`,
       icon: TrendingUp,
       className: "income-card",
     },
     {
-      title: "Total Expenses",
-      value: CURRENCY_FORMATTER.format(dashboardAnalytics.expenses),
-      description: "From your saved transactions",
+      title: `${dashboardPeriodName} Total Expenses`,
+      value: CURRENCY_FORMATTER.format(periodExpenses),
+      description: `For ${dashboardPeriodRange.label}`,
       icon: TrendingDown,
       className: "expense-card",
     },
     {
-      title: "Net Cash Flow",
-      value: CURRENCY_FORMATTER.format(dashboardAnalytics.net),
-      description: "Income minus expenses",
+      title: `${dashboardPeriodName} Net Cash Flow`,
+      value: CURRENCY_FORMATTER.format(periodIncome - periodExpenses),
+      description: `Income minus expenses · ${dashboardPeriodRange.label}`,
       icon: Target,
       className: "savings-card",
     },
   ];
+
+  useEffect(() => {
+    if (notificationStoreOwner !== notificationStorageKey) return;
+    setNotifications((current) => {
+      const retained = current.filter((notification) => (
+        !notification.dismissed || activeAlertIds.has(notification.sourceId)
+      ));
+      return retained.length === current.length ? current : retained;
+    });
+  }, [activeAlertSignature, notificationStorageKey, notificationStoreOwner]);
+
+  useEffect(() => {
+    if (currentPage !== "dashboard" || notificationStoreOwner !== notificationStorageKey) return;
+    const newAlerts = financialAlerts.filter(
+      (alert) => !previousNotificationAlertIdsRef.current.has(alert.id)
+    );
+    previousNotificationAlertIdsRef.current = activeAlertIds;
+    if (!newAlerts.length) return;
+
+    const createdAt = Date.now();
+    setNotifications((current) => [
+      ...newAlerts.map((alert, index) => ({
+        id: `${alert.id}-${createdAt + index}`,
+        sourceId: alert.id,
+        title: alert.title,
+        message: alert.message,
+        tone: alert.tone,
+        createdAt: new Date(createdAt + index).toISOString(),
+        read: false,
+        dismissed: false,
+      })),
+      ...current,
+    ].slice(0, 100));
+  }, [activeAlertSignature, currentPage, notificationStorageKey, notificationStoreOwner]);
 
   useEffect(() => {
     const alertIds = new Set(financialAlerts.map((alert) => alert.id));
@@ -2243,7 +2782,7 @@ function App() {
               >
                 <Icon size={19} />
                 <span>{item.name}</span>
-                {item.name === "AI Insights" && (
+                {item.name === "AI Assistant" && (
                   <span className="ai-badge">AI</span>
                 )}
               </button>
@@ -2264,9 +2803,9 @@ function App() {
           </div>
 
           <button
-            className={`nav-item settings-button ${activePage === "Profile" ? "active" : ""}`}
+            className={`nav-item settings-button ${activePage === "Settings" ? "active" : ""}`}
             type="button"
-            onClick={() => navigateToPage("Profile")}
+            onClick={() => navigateToPage("Settings")}
           >
             <Settings size={19} />
             <span>Settings</span>
@@ -2312,6 +2851,16 @@ function App() {
           </div>
 
           <div className="top-actions">
+            <button
+              className="dashboard-nav-button back-nav-button"
+              type="button"
+              aria-label="Go back"
+              onClick={handleGoBack}
+              disabled={pageHistory.length === 0}
+            >
+              <ArrowLeft size={16} />
+              <span>Back</span>
+            </button>
             {activePage !== "Dashboard" && (
               <button
                 className="dashboard-nav-button"
@@ -2342,14 +2891,14 @@ function App() {
               <button
                 className="notification-button"
                 type="button"
-                aria-label={`Notifications${financialAlerts.length ? `, ${financialAlerts.length} alerts` : ""}`}
+                aria-label={`Notifications${unreadNotificationCount ? `, ${unreadNotificationCount} alerts` : ""}`}
                 aria-expanded={isNotificationsOpen}
                 aria-controls="financial-notifications"
-                onClick={() => setIsNotificationsOpen((open) => !open)}
+                onClick={toggleNotifications}
               >
                 <Bell size={19} />
-                {financialAlerts.length > 0 && (
-                  <span className="notification-count">{financialAlerts.length}</span>
+                {unreadNotificationCount > 0 && (
+                  <span className="notification-count">{unreadNotificationCount}</span>
                 )}
               </button>
               {isNotificationsOpen && (
@@ -2357,7 +2906,13 @@ function App() {
                   <div className="notification-popover-header">
                     <div>
                       <strong>Notifications</strong>
-                      <span>{financialAlerts.length ? `${financialAlerts.length} financial alert${financialAlerts.length === 1 ? "" : "s"}` : "You're all caught up"}</span>
+                      <span>
+                        {visibleNotifications.length
+                          ? unreadNotificationCount
+                            ? `${unreadNotificationCount} unread · ${visibleNotifications.length} saved`
+                            : `${visibleNotifications.length} saved`
+                          : "You're all caught up"}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -2368,29 +2923,48 @@ function App() {
                       <X size={16} />
                     </button>
                   </div>
-                  {transactionError || budgetError ? (
+                  {notificationStorageError ? (
+                    <p className="notification-empty" role="alert">{notificationStorageError}</p>
+                  ) : transactionError || budgetError ? (
                     <p className="notification-empty" role="alert">
                       Alerts may be incomplete: {transactionError || budgetError}
                     </p>
-                  ) : financialAlerts.length > 0 ? (
+                  ) : visibleNotifications.length > 0 ? (
                     <div className="notification-list">
-                      {financialAlerts.map((alert) => (
-                        <article className={`notification-item notification-${alert.tone}`} key={alert.id}>
+                      {visibleNotifications.map((notification) => (
+                        <article
+                          className={`notification-item notification-${notification.tone}${notification.read ? "" : " notification-unread"}`}
+                          key={notification.id}
+                        >
                           <span className="notification-item-icon"><Bell size={15} /></span>
-                          <div>
-                            <strong>{alert.title}</strong>
-                            <p>{alert.message}</p>
+                          <div className="notification-item-copy">
+                            <strong>{notification.title}</strong>
+                            <p>{notification.message}</p>
+                            <time dateTime={notification.createdAt}>
+                              {new Date(notification.createdAt).toLocaleString("en-IN", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })}
+                            </time>
                           </div>
+                          <button
+                            className="notification-delete"
+                            type="button"
+                            aria-label={`Delete ${notification.title} notification`}
+                            onClick={() => deleteNotification(notification.id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </article>
                       ))}
                     </div>
                   ) : (
-                    <p className="notification-empty">No high-expense or low-cash-flow alerts right now.</p>
+                    <p className="notification-empty">No saved financial notifications right now.</p>
                   )}
                   <button
                     className="notification-settings-link"
                     type="button"
-                    onClick={() => navigateToPage("Profile")}
+                    onClick={() => navigateToPage("Settings")}
                   >
                     Manage alert settings
                   </button>
@@ -2429,6 +3003,46 @@ function App() {
                 <Plus size={18} /> Add Transaction
               </button>
             </section>
+            <section className="dashboard-period-bar" aria-label="Dashboard reporting period">
+              <div>
+                <strong>Financial overview</strong>
+                <span>Choose a week, month, or year to review your activity.</span>
+              </div>
+              <div className="dashboard-period-controls">
+                <label htmlFor="dashboard-period">Period</label>
+                <select
+                  id="dashboard-period"
+                  value={dashboardPeriod}
+                  onChange={(event) => setDashboardPeriod(event.target.value)}
+                >
+                  <option value="WEEKLY">Weekly</option>
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="YEARLY">Yearly</option>
+                </select>
+                <label className="visually-hidden" htmlFor="dashboard-period-date">
+                  {dashboardPeriod === "WEEKLY" ? "Week containing" : dashboardPeriod === "MONTHLY" ? "Month" : "Year"}
+                </label>
+                <input
+                  id="dashboard-period-date"
+                  aria-label={dashboardPeriod === "WEEKLY" ? "Week containing" : dashboardPeriod === "MONTHLY" ? "Month" : "Year"}
+                  type={dashboardPeriod === "WEEKLY" ? "date" : dashboardPeriod === "MONTHLY" ? "month" : "number"}
+                  min={dashboardPeriod === "YEARLY" ? "1970" : undefined}
+                  max={dashboardPeriod === "YEARLY" ? String(new Date().getFullYear() + 1) : undefined}
+                  value={dashboardPeriod === "WEEKLY"
+                    ? dashboardPeriodDate
+                    : dashboardPeriod === "MONTHLY"
+                      ? dashboardPeriodDate.slice(0, 7)
+                      : dashboardPeriodDate.slice(0, 4)}
+                  onChange={(event) => setDashboardPeriodDate(
+                    dashboardPeriod === "WEEKLY"
+                      ? event.target.value
+                      : dashboardPeriod === "MONTHLY"
+                        ? `${event.target.value}-01`
+                        : `${event.target.value}-01-01`
+                  )}
+                />
+              </div>
+            </section>
             {(transactionError || accountError || budgetError) && (
               <p className="transaction-form-error" role="alert">
                 {transactionError || accountError || budgetError}
@@ -2458,7 +3072,7 @@ function App() {
                     <p className="stat-description">
                       {stat.description}
                     </p>
-                    {stat.title === "Total Balance" && accounts.length === 0 && (
+                    {stat.className === "balance-card" && accounts.length === 0 && (
                       <button
                         className="stat-action"
                         type="button"
@@ -2603,6 +3217,9 @@ function App() {
                     <h3>Recent Transactions</h3>
                     <p>Your latest financial activity</p>
                   </div>
+                  <button className="profile-secondary-button" type="button" onClick={() => navigateToPage("Transactions")}>
+                    All transactions <ArrowUpRight size={15} />
+                  </button>
                 </div>
 
                 {transactionError && <p className="transaction-form-error" role="alert">{transactionError}</p>}
@@ -2640,7 +3257,7 @@ function App() {
 
                 <button
                   className="ai-button"
-                  onClick={() => setActivePage("AI Insights")}
+                  onClick={() => navigateToPage("AI Insights")}
                 >
                   Explore AI Insights <ArrowUpRight size={17} />
                 </button>
@@ -2767,10 +3384,22 @@ function App() {
         ) : activePage === "AI Insights" ? (
           <AiInsightsView
             monthSummary={currentMonthSummary}
-            onViewTransactions={() => setActivePage("Transactions")}
+            onViewTransactions={() => navigateToPage("Transactions")}
+          />
+        ) : activePage === "AI Assistant" ? (
+          <AiAssistantView
+            context={{
+              rangeLabel: dashboardPeriodRange.label,
+              transactions: dashboardPeriodTransactions,
+              income: periodIncome,
+              expenses: periodExpenses,
+              balance: accountBalance,
+              budgets,
+            }}
           />
         ) : activePage === "Profile" ? (
           <ProfileView
+            pageMode="Profile"
             userInfo={userInfo}
             greetingName={greetingName}
             preferences={alertPreferences}
@@ -2782,13 +3411,32 @@ function App() {
             onProfilePhotoChange={handleProfilePhotoChange}
             onProfilePhotoZoomChange={handleProfilePhotoZoomChange}
             onLogout={handleLogout}
+            onDeleteAccount={handleDeleteAccount}
+            onNavigate={navigateToPage}
+          />
+        ) : activePage === "Settings" || activePage === "Login History" ? (
+          <ProfileView
+            pageMode={activePage}
+            userInfo={userInfo}
+            greetingName={greetingName}
+            preferences={alertPreferences}
+            profilePhoto={profilePhoto}
+            profilePhotoZoom={profilePhotoZoom}
+            onProfilePhotoView={() => setIsProfilePhotoOpen(true)}
+            onPreferenceChange={handleAlertPreferenceChange}
+            onProfileUpdated={handleProfileUpdated}
+            onProfilePhotoChange={handleProfilePhotoChange}
+            onProfilePhotoZoomChange={handleProfilePhotoZoomChange}
+            onLogout={handleLogout}
+            onDeleteAccount={handleDeleteAccount}
+            onNavigate={navigateToPage}
           />
         ) : (
           <section className="coming-soon panel">
             <div className="coming-icon"><Sparkles size={32} /></div>
             <h2>{activePage}</h2>
             <p>This section is ready for the next development milestone.</p>
-            <button className="add-button" type="button" onClick={() => setActivePage("Dashboard")}>
+            <button className="add-button" type="button" onClick={() => navigateToPage("Dashboard")}>
               Back to Dashboard
             </button>
           </section>

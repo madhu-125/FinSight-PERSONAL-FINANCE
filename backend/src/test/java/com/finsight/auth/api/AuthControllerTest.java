@@ -3,7 +3,9 @@ package com.finsight.auth.api;
 
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -11,6 +13,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -19,13 +22,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.finsight.auth.repository.AuthSessionRepository;
+import com.finsight.auth.repository.AuthHistoryRepository;
 import com.finsight.auth.repository.FinanceAccountRepository;
 import com.finsight.auth.repository.FinanceTransactionRepository;
 import com.finsight.auth.repository.MonthlyBudgetRepository;
 import com.finsight.auth.repository.OtpChallengeRepository;
 import com.finsight.auth.repository.UserAccountRepository;
+import com.finsight.auth.model.FinanceAccount;
+import com.finsight.auth.model.FinanceTransaction;
+import com.finsight.auth.model.MonthlyBudget;
 import com.finsight.auth.service.OtpDeliveryService;
 import jakarta.servlet.http.Cookie;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -53,6 +63,9 @@ class AuthControllerTest {
     private AuthSessionRepository sessions;
 
     @Autowired
+    private AuthHistoryRepository history;
+
+    @Autowired
     private FinanceTransactionRepository transactions;
 
     @Autowired
@@ -75,6 +88,7 @@ class AuthControllerTest {
         budgets.deleteAll();
         accounts.deleteAll();
         transactions.deleteAll();
+        history.deleteAll();
         sessions.deleteAll();
         challenges.deleteAll();
         users.deleteAll();
@@ -97,6 +111,14 @@ class AuthControllerTest {
             .andExpect(status().isOk())
             .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"))
             .andExpect(header().string("Access-Control-Allow-Methods", containsString("PUT")))
+            .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+
+        mockMvc.perform(options("/api/auth/account")
+                .header("Origin", "http://localhost:3000")
+                .header("Access-Control-Request-Method", "DELETE")
+                .header("Access-Control-Request-Headers", "content-type"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Access-Control-Allow-Methods", containsString("DELETE")))
             .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
     }
 
@@ -218,6 +240,106 @@ class AuthControllerTest {
                     """.formatted(password)))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.error").value(containsString("already exists")));
+    }
+
+    @Test
+    void loginHistoryTracksSuccessfulLoginAndLogoutForTheSignedInAccount() throws Exception {
+        String password = "StrongPass123!";
+        MvcResult registration = mockMvc.perform(post("/api/auth/password/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"email","email":"history-user@example.com","displayName":"History User","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie registrationCookie = registration.getResponse().getCookie("finsight_session");
+
+        mockMvc.perform(get("/api/auth/history").cookie(registrationCookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].eventType").value("LOGIN"));
+
+        mockMvc.perform(post("/api/auth/logout").cookie(registrationCookie))
+            .andExpect(status().isOk());
+
+        MvcResult login = mockMvc.perform(post("/api/auth/password/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"email","email":"history-user@example.com","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(get("/api/auth/history").cookie(login.getResponse().getCookie("finsight_session")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].eventType").value("LOGIN"))
+            .andExpect(jsonPath("$[1].eventType").value("LOGOUT"))
+            .andExpect(jsonPath("$[2].eventType").value("LOGIN"));
+    }
+
+    @Test
+    void deletingAccountRemovesOnlyItsFinancialAndAuthenticationData() throws Exception {
+        String password = "StrongPass123!";
+        MvcResult firstRegistration = mockMvc.perform(post("/api/auth/password/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"email","email":"delete-me@example.com","displayName":"Delete Me","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isOk())
+            .andReturn();
+        MvcResult secondRegistration = mockMvc.perform(post("/api/auth/password/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"email","email":"keep-me@example.com","displayName":"Keep Me","password":"%s"}
+                    """.formatted(password)))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        var firstUser = users.findByChannelAndDestination("email", "delete-me@example.com").orElseThrow();
+        var secondUser = users.findByChannelAndDestination("email", "keep-me@example.com").orElseThrow();
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.now();
+        transactions.save(new FinanceTransaction(
+            firstUser.getId(), "First expense", "Food", new BigDecimal("12.00"), "expense", today, now
+        ));
+        transactions.save(new FinanceTransaction(
+            secondUser.getId(), "Second expense", "Food", new BigDecimal("15.00"), "expense", today, now
+        ));
+        accounts.save(new FinanceAccount(
+            firstUser.getId(), "First account", "BANK", new BigDecimal("100.00"), now
+        ));
+        accounts.save(new FinanceAccount(
+            secondUser.getId(), "Second account", "BANK", new BigDecimal("200.00"), now
+        ));
+        budgets.save(new MonthlyBudget(
+            firstUser.getId(), "Food", new BigDecimal("100.00"), "MONTHLY", today.withDayOfMonth(1), now
+        ));
+        budgets.save(new MonthlyBudget(
+            secondUser.getId(), "Food", new BigDecimal("120.00"), "MONTHLY", today.withDayOfMonth(1), now
+        ));
+
+        mockMvc.perform(delete("/api/auth/account")
+                .cookie(firstRegistration.getResponse().getCookie("finsight_session")))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Set-Cookie", containsString("Max-Age=0")))
+            .andExpect(jsonPath("$.deleted").value(true));
+
+        assertFalse(users.existsById(firstUser.getId()));
+        assertTrue(users.existsById(secondUser.getId()));
+        assertEquals(0, transactions.findByUserIdOrderByTransactionDateDescIdDesc(firstUser.getId()).size());
+        assertEquals(1, transactions.findByUserIdOrderByTransactionDateDescIdDesc(secondUser.getId()).size());
+        assertEquals(0, accounts.findByUserIdOrderByNameAsc(firstUser.getId()).size());
+        assertEquals(1, accounts.findByUserIdOrderByNameAsc(secondUser.getId()).size());
+        assertEquals(0, budgets.findByUserIdOrderByPeriodStartDescCategoryAsc(firstUser.getId()).size());
+        assertEquals(1, budgets.findByUserIdOrderByPeriodStartDescCategoryAsc(secondUser.getId()).size());
+
+        mockMvc.perform(get("/api/auth/session")
+                .cookie(firstRegistration.getResponse().getCookie("finsight_session")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.authenticated").value(false));
+        mockMvc.perform(get("/api/auth/history")
+                .cookie(secondRegistration.getResponse().getCookie("finsight_session")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].eventType").value("LOGIN"));
     }
 
     @Test
