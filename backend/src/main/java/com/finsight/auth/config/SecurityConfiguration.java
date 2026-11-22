@@ -46,13 +46,14 @@ public class SecurityConfiguration {
         GoogleLoginSuccessHandler successHandler,
         @Value("${finsight.client-origin:http://localhost:3000}") String clientOrigin
     ) throws Exception {
+        String normalizedClientOrigin = ClientOrigin.normalize(clientOrigin);
         http
             .csrf(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
             .oauth2Login(oauth -> oauth
                 .successHandler(successHandler)
                 .failureHandler((request, response, exception) ->
-                    response.sendRedirect(clientOrigin + "/?oauthError=google_login_failed")
+                    response.sendRedirect(normalizedClientOrigin + "/?oauthError=google_login_failed")
                 )
             );
         return http.build();

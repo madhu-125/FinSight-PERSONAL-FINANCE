@@ -1,5 +1,6 @@
 package com.finsight.auth.service;
 
+import com.finsight.auth.config.ClientOrigin;
 import com.finsight.auth.service.AuthService.LoginResult;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,7 +31,7 @@ public class GoogleLoginSuccessHandler implements AuthenticationSuccessHandler {
         @Value("${finsight.session.secure:false}") boolean secureCookie
     ) {
         this.authService = authService;
-        this.clientOrigin = clientOrigin.replaceAll("/+$", "");
+        this.clientOrigin = ClientOrigin.normalize(clientOrigin);
         this.secureCookie = secureCookie;
     }
 

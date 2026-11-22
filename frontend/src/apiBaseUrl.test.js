@@ -12,3 +12,8 @@ test('matches 127.0.0.1 API requests to the browser localhost hostname', () => {
 test('leaves configured non-loopback API hosts unchanged', () => {
   expect(getApiBaseUrl('https://api.example.test', 'localhost')).toBe('https://api.example.test');
 });
+
+test('uses HTTPS for Render service host references without a scheme', () => {
+  expect(getApiBaseUrl('finsight-api.onrender.com', 'finsight-web.onrender.com'))
+    .toBe('https://finsight-api.onrender.com');
+});

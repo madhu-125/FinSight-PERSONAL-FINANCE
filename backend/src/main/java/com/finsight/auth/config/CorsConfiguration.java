@@ -14,9 +14,10 @@ public class CorsConfiguration implements WebMvcConfigurer {
     private final List<String> clientOrigins;
 
     public CorsConfiguration(@Value("${finsight.client-origin:http://localhost:3000}") String clientOrigin) {
-        URI origin = URI.create(clientOrigin);
+        String normalizedOrigin = ClientOrigin.normalize(clientOrigin);
+        URI origin = URI.create(normalizedOrigin);
         List<String> origins = new ArrayList<>();
-        origins.add(clientOrigin);
+        origins.add(normalizedOrigin);
         String host = origin.getHost();
         if ("localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)) {
             String loopbackHost = "localhost".equalsIgnoreCase(host) ? "127.0.0.1" : "localhost";

@@ -1,6 +1,7 @@
 package com.finsight.auth.api;
 
 // Maps authentication, password, and profile HTTP requests to AuthService.
+import com.finsight.auth.config.ClientOrigin;
 import com.finsight.auth.service.AuthService;
 import com.finsight.auth.service.AuthService.LoginResult;
 import com.finsight.auth.service.AuthService.OtpSent;
@@ -48,7 +49,7 @@ public class AuthController {
         this.secureCookie = secureCookie;
         this.demoAuthEnabled = demoAuthEnabled;
         this.googleOAuthEnabled = !googleClientId.isBlank() && !googleClientSecret.isBlank();
-        this.clientOrigin = clientOrigin.replaceAll("/+$", "");
+        this.clientOrigin = ClientOrigin.normalize(clientOrigin);
     }
 
     @GetMapping("/oauth/google")
