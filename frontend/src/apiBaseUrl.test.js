@@ -17,3 +17,8 @@ test('uses HTTPS for Render service host references without a scheme', () => {
   expect(getApiBaseUrl('finsight-api.onrender.com', 'finsight-web.onrender.com'))
     .toBe('https://finsight-api.onrender.com');
 });
+
+test('adds the Render domain to a bare service hostname', () => {
+  expect(getApiBaseUrl('finsight-api-ne8t', 'finsight-web-p9bg.onrender.com'))
+    .toBe('https://finsight-api-ne8t.onrender.com');
+});
