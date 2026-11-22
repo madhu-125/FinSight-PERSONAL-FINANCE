@@ -8,6 +8,7 @@
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^13.5.0",
     "framer-motion": "^14.14.0",
+    "jspdf": "^3.0.1",
     "lucide-react": "^1.77.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -20,8 +21,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "test:server": "node --test server/auth.test.js",
-    "server": "node --env-file=.env server/index.js",
+    "test:server": "node --test ../backend/node-auth/auth.test.js",
+    "server": "node --env-file=../.env ../backend/node-auth/index.js",
     "eject": "react-scripts eject"
   },
   "proxy": "http://localhost:4000",

@@ -1,4 +1,5 @@
 package com.finsight.auth.model;
+// Maps a one-time verification challenge and its expiration state.
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

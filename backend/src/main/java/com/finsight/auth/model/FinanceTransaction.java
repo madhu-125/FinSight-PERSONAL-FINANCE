@@ -1,4 +1,5 @@
 package com.finsight.auth.model;
+// Maps a dated income or expense transaction to its owning user.
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

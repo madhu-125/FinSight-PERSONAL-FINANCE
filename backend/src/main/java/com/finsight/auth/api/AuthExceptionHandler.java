@@ -1,4 +1,5 @@
 package com.finsight.auth.api;
+// Converts application exceptions into consistent API error responses.
 
 import java.util.LinkedHashMap;
 import java.util.Map;

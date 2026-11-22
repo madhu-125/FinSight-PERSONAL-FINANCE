@@ -1,4 +1,5 @@
 package com.finsight.auth.model;
+// Maps account identity, password, and profile fields persisted by the API.
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -31,6 +32,27 @@ public class UserAccount {
 
     @Column(name = "display_name", length = 120)
     private String displayName;
+
+    @Column(name = "profile_age")
+    private Integer age;
+
+    @Column(name = "profile_gender", length = 40)
+    private String gender;
+
+    @Column(name = "profile_mobile", length = 30)
+    private String mobileNumber;
+
+    @Column(name = "profile_address", length = 500)
+    private String address;
+
+    @Column(name = "password_hash", length = 100)
+    private String passwordHash;
+
+    @Column(name = "failed_password_attempts", nullable = false)
+    private int failedPasswordAttempts;
+
+    @Column(name = "password_locked_until")
+    private Instant passwordLockedUntil;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -65,6 +87,26 @@ public class UserAccount {
         return displayName;
     }
 
+    public Integer getAge() {
+        return age;
+    }
+
+    public String getGender() {
+        return gender;
+    }
+
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -78,5 +120,38 @@ public class UserAccount {
             this.displayName = name.trim();
         }
         this.lastLoginAt = now;
+    }
+
+    public void updateDisplayName(String name) {
+        this.displayName = name;
+    }
+
+    public void updateProfile(Integer age, String gender, String mobileNumber, String address) {
+        this.age = age;
+        this.gender = gender;
+        this.mobileNumber = mobileNumber;
+        this.address = address;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+        resetPasswordFailures();
+    }
+
+    public boolean isPasswordLocked(Instant now) {
+        return passwordLockedUntil != null && passwordLockedUntil.isAfter(now);
+    }
+
+    public void recordFailedPasswordAttempt(Instant now) {
+        failedPasswordAttempts++;
+        if (failedPasswordAttempts >= 5) {
+            failedPasswordAttempts = 0;
+            passwordLockedUntil = now.plusSeconds(15 * 60);
+        }
+    }
+
+    public void resetPasswordFailures() {
+        failedPasswordAttempts = 0;
+        passwordLockedUntil = null;
     }
 }

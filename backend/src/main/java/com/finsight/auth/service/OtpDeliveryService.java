@@ -1,4 +1,5 @@
 package com.finsight.auth.service;
+// Delivers one-time verification codes through the configured channels.
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +34,7 @@ public class OtpDeliveryService {
     private final String twilioAccountSid;
     private final String twilioAuthToken;
     private final String twilioFromNumber;
+    private final boolean consoleDeliveryEnabled;
 
     public OtpDeliveryService(
         ObjectMapper objectMapper,
@@ -40,7 +42,8 @@ public class OtpDeliveryService {
         @Value("${finsight.resend.from-email:}") String resendFromEmail,
         @Value("${finsight.twilio.account-sid:}") String twilioAccountSid,
         @Value("${finsight.twilio.auth-token:}") String twilioAuthToken,
-        @Value("${finsight.twilio.from-number:}") String twilioFromNumber
+        @Value("${finsight.twilio.from-number:}") String twilioFromNumber,
+        @Value("${finsight.otp.console-delivery.enabled:false}") boolean consoleDeliveryEnabled
     ) {
         this.objectMapper = objectMapper;
         this.resendApiKey = resendApiKey;
@@ -48,6 +51,7 @@ public class OtpDeliveryService {
         this.twilioAccountSid = twilioAccountSid;
         this.twilioAuthToken = twilioAuthToken;
         this.twilioFromNumber = twilioFromNumber;
+        this.consoleDeliveryEnabled = consoleDeliveryEnabled;
     }
 
     public void send(String channel, String destination, String code) {
@@ -60,7 +64,15 @@ public class OtpDeliveryService {
 
     private void sendEmail(String email, String code) {
         if (resendApiKey.isBlank() || resendFromEmail.isBlank()) {
-            throw new AuthException(HttpStatus.SERVICE_UNAVAILABLE, "Email verification is not configured on this server.");
+            if (consoleDeliveryEnabled) {
+                LOGGER.warn("Email OTP delivery fallback enabled; send an email provider is not configured.");
+                LOGGER.info("Development email OTP for {}: {}", email, code);
+                return;
+            }
+            throw new AuthException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Email verification needs RESEND_API_KEY and a verified RESEND_FROM_EMAIL in the server .env. Restart the backend after configuring them."
+            );
         }
         String text = "Your FinSight verification code is " + code + ". It expires in 10 minutes.";
         String body;
@@ -88,6 +100,11 @@ public class OtpDeliveryService {
 
     private void sendSms(String phone, String code) {
         if (twilioAccountSid.isBlank() || twilioAuthToken.isBlank() || twilioFromNumber.isBlank()) {
+            if (consoleDeliveryEnabled) {
+                LOGGER.warn("SMS OTP delivery fallback enabled; an SMS provider is not configured.");
+                LOGGER.info("Development SMS OTP for {}: {}", phone, code);
+                return;
+            }
             throw new AuthException(HttpStatus.SERVICE_UNAVAILABLE, "SMS verification is not configured on this server.");
         }
         String accountPath = URLEncoder.encode(twilioAccountSid, StandardCharsets.UTF_8);

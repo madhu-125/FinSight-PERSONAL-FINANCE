@@ -1,4 +1,5 @@
 package com.finsight.auth.repository;
+// Provides user-scoped database access for finance accounts.
 
 import com.finsight.auth.model.FinanceAccount;
 import java.util.List;

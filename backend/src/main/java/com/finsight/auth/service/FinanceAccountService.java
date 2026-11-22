@@ -1,4 +1,5 @@
 package com.finsight.auth.service;
+// Validates and manages finance accounts within the current user's scope.
 
 import com.finsight.auth.api.AccountRequest;
 import com.finsight.auth.api.AccountResponse;

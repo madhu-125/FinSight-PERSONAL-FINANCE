@@ -1,4 +1,5 @@
 package com.finsight.auth.service;
+// Validates and manages transactions within the current user's scope.
 
 import com.finsight.auth.api.AuthException;
 import com.finsight.auth.api.TransactionRequest;

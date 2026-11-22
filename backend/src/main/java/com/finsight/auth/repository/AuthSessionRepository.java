@@ -1,4 +1,5 @@
 package com.finsight.auth.repository;
+// Provides database queries for persisted authentication sessions.
 
 import com.finsight.auth.model.AuthSession;
 import java.time.Instant;

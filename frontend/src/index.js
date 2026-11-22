@@ -1,3 +1,4 @@
+// Mounts the React application into the browser document.
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';

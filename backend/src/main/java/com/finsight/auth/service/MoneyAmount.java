@@ -1,4 +1,5 @@
 package com.finsight.auth.service;
+// Normalizes and validates monetary values used by finance services.
 
 import com.finsight.auth.api.AuthException;
 import java.math.BigDecimal;

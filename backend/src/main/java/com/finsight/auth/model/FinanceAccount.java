@@ -1,4 +1,5 @@
 package com.finsight.auth.model;
+// Maps a finance account and balance to its owning user.
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

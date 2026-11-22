@@ -1,5 +1,6 @@
 package com.finsight.auth.api;
 
+// Exposes authenticated HTTP endpoints for user-owned finance accounts.
 import com.finsight.auth.service.CurrentUserService;
 import com.finsight.auth.service.FinanceAccountService;
 import java.util.List;

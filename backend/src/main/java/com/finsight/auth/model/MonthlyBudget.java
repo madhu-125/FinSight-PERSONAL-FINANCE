@@ -1,4 +1,5 @@
 package com.finsight.auth.model;
+// Maps a user-owned budget and its configured time period.
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -16,8 +17,8 @@ import java.time.LocalDate;
 @Table(
     name = "monthly_budgets",
     uniqueConstraints = @UniqueConstraint(
-        name = "uq_monthly_budgets_user_category_period",
-        columnNames = {"user_id", "category", "period_start"}
+        name = "uq_monthly_budgets_user_category_period_type",
+        columnNames = {"user_id", "category", "period_type", "period_start"}
     ),
     indexes = @Index(
         name = "idx_monthly_budgets_user_period",
@@ -38,6 +39,9 @@ public class MonthlyBudget {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 
+    @Column(name = "period_type", nullable = false, length = 12)
+    private String periodType;
+
     @Column(name = "period_start", nullable = false)
     private LocalDate periodStart;
 
@@ -50,10 +54,18 @@ public class MonthlyBudget {
     protected MonthlyBudget() {
     }
 
-    public MonthlyBudget(Long userId, String category, BigDecimal amount, LocalDate periodStart, Instant now) {
+    public MonthlyBudget(
+        Long userId,
+        String category,
+        BigDecimal amount,
+        String periodType,
+        LocalDate periodStart,
+        Instant now
+    ) {
         this.userId = userId;
         this.category = category;
         this.amount = amount;
+        this.periodType = periodType;
         this.periodStart = periodStart;
         this.createdAt = now;
         this.updatedAt = now;
@@ -73,6 +85,10 @@ public class MonthlyBudget {
 
     public BigDecimal getAmount() {
         return amount;
+    }
+
+    public String getPeriodType() {
+        return periodType;
     }
 
     public LocalDate getPeriodStart() {

@@ -1,4 +1,5 @@
 package com.finsight.auth.api;
+// Exposes authenticated endpoints for the signed-in user's budgets.
 
 import com.finsight.auth.service.CurrentUserService;
 import com.finsight.auth.service.MonthlyBudgetService;

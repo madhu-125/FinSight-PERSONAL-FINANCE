@@ -1,4 +1,5 @@
 package com.finsight.auth.repository;
+// Provides database queries for one-time verification challenges.
 
 import com.finsight.auth.model.OtpChallenge;
 import jakarta.persistence.LockModeType;

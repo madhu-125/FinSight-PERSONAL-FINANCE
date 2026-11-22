@@ -1,4 +1,5 @@
 package com.finsight.auth.api;
+// Exposes authenticated endpoints for user-owned financial transactions.
 
 import com.finsight.auth.service.CurrentUserService;
 import com.finsight.auth.service.FinanceTransactionService;

@@ -1,6 +1,11 @@
 package com.finsight.auth.service;
+// Implements account registration, authentication, OTP, password, and profile rules.
 
 import com.finsight.auth.api.AuthException;
+import com.finsight.auth.api.PasswordChangeRequest;
+import com.finsight.auth.api.PasswordLoginRequest;
+import com.finsight.auth.api.PasswordResetRequest;
+import com.finsight.auth.api.ProfileUpdateRequest;
 import com.finsight.auth.api.OtpSendRequest;
 import com.finsight.auth.api.OtpVerifyRequest;
 import com.finsight.auth.model.AuthSession;
@@ -22,6 +27,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,19 +37,23 @@ public class AuthService {
     private static final Duration OTP_RESEND_DELAY = Duration.ofSeconds(60);
     private static final Duration SESSION_LIFETIME = Duration.ofDays(365);
     private static final int OTP_MAX_ATTEMPTS = 5;
+    private static final int PASSWORD_MAX_BYTES = 72;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OtpChallengeRepository challenges;
     private final UserAccountRepository users;
     private final AuthSessionRepository sessions;
     private final OtpDeliveryService delivery;
+    private final PasswordEncoder passwordEncoder;
     private final String otpSecret;
+    private final String dummyPasswordHash;
 
     public AuthService(
         OtpChallengeRepository challenges,
         UserAccountRepository users,
         AuthSessionRepository sessions,
         OtpDeliveryService delivery,
+        PasswordEncoder passwordEncoder,
         @Value("${finsight.otp.secret}") String otpSecret
     ) {
         if (otpSecret == null || otpSecret.length() < 32) {
@@ -53,13 +63,27 @@ public class AuthService {
         this.users = users;
         this.sessions = sessions;
         this.delivery = delivery;
+        this.passwordEncoder = passwordEncoder;
         this.otpSecret = otpSecret;
+        this.dummyPasswordHash = passwordEncoder.encode("finsight-password-timing-placeholder");
     }
 
     @Transactional(noRollbackFor = AuthException.class)
     public OtpSent sendOtp(OtpSendRequest request) {
         Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
-        String challengeKey = challengeKey(recipient.channel(), recipient.destination());
+        return sendOtp(recipient, challengeKey(recipient.channel(), recipient.destination()));
+    }
+
+    @Transactional(noRollbackFor = AuthException.class)
+    public void sendPasswordResetOtp(OtpSendRequest request) {
+        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        if (users.findByChannelAndDestination(recipient.channel(), recipient.destination()).isEmpty()) {
+            return;
+        }
+        sendOtp(recipient, passwordResetChallengeKey(recipient));
+    }
+
+    private OtpSent sendOtp(Recipient recipient, String challengeKey) {
         Instant now = Instant.now();
         Optional<OtpChallenge> previous = challenges.findForUpdate(challengeKey);
         if (previous.isPresent() && previous.get().getResendAt().isAfter(now)) {
@@ -92,12 +116,178 @@ public class AuthService {
     @Transactional(noRollbackFor = AuthException.class)
     public LoginResult verifyOtp(OtpVerifyRequest request) {
         Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
-        String code = request.code() == null ? "" : request.code().trim();
+        String displayName = normalizeDisplayName(request.displayName());
+        String password = request.password() == null || request.password().isBlank()
+            ? null
+            : validateNewPassword(request.password());
+        verifyAndConsumeOtp(challengeKey(recipient.channel(), recipient.destination()), request.code());
+        return createLoginSession(recipient, displayName, Instant.now(), password);
+    }
+
+    @Transactional(noRollbackFor = AuthException.class)
+    public void resetPassword(PasswordResetRequest request) {
+        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        String newPassword = validateNewPassword(request.newPassword());
+        String resetChallengeKey = passwordResetChallengeKey(recipient);
+        verifyAndConsumeOtp(resetChallengeKey, request.code());
+        UserAccount user = users.findByChannelAndDestination(recipient.channel(), recipient.destination())
+            .orElseThrow(() -> new AuthException(HttpStatus.BAD_REQUEST, "The reset code or account is not valid."));
+        if (user.getPasswordHash() != null && passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose a password different from your current password.");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        users.save(user);
+    }
+
+    @Transactional(noRollbackFor = AuthException.class)
+    public LoginResult passwordLogin(PasswordLoginRequest request) {
+        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        String password = request.password() == null ? "" : request.password();
+        Optional<UserAccount> candidate = users.findByChannelAndDestination(recipient.channel(), recipient.destination());
+        Instant now = Instant.now();
+
+        if (candidate.isEmpty()) {
+            verifyAgainstDummyHash(password);
+            throw invalidPasswordLogin();
+        }
+
+        UserAccount user = candidate.get();
+        String passwordHash = user.getPasswordHash();
+        if (passwordHash == null) {
+            verifyAgainstDummyHash(password);
+            user.recordFailedPasswordAttempt(now);
+            users.save(user);
+            throw invalidPasswordLogin();
+        }
+        if (user.isPasswordLocked(now)) {
+            verifyAgainstDummyHash(password);
+            throw invalidPasswordLogin();
+        }
+        if (password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_BYTES
+            || !passwordEncoder.matches(password, passwordHash)) {
+            user.recordFailedPasswordAttempt(now);
+            users.save(user);
+            throw invalidPasswordLogin();
+        }
+
+        user.resetPasswordFailures();
+        users.save(user);
+        return createLoginSession(recipient, user.getDisplayName(), now);
+    }
+
+    @Transactional
+    public LoginResult loginWithGoogle(String email, String displayName) {
+        String normalizedEmail = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        if (normalizedEmail.length() > 254
+            || !normalizedEmail.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+            throw new AuthException(HttpStatus.UNAUTHORIZED, "Google did not provide a valid email address.");
+        }
+        return createLoginSession(
+            new Recipient("email", normalizedEmail),
+            normalizeDisplayName(displayName),
+            Instant.now()
+        );
+    }
+
+    @Transactional
+    public ProfileInfo getProfile(String token) {
+        return profileInfo(requireCurrentUser(token));
+    }
+
+    @Transactional
+    public ProfileInfo updateProfile(String token, ProfileUpdateRequest request) {
+        UserAccount user = requireCurrentUser(token);
+        if (request == null) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Profile details are required.");
+        }
+        String displayName = normalizeDisplayName(request.displayName());
+        if (displayName == null) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter a display name.");
+        }
+        Integer age = request.age();
+        if (age != null && (age < 1 || age > 120)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Age must be between 1 and 120.");
+        }
+        String gender = normalizeOptionalProfileText(request.gender(), 40, "Gender");
+        String mobileNumber = normalizeOptionalProfileText(request.mobileNumber(), 30, "Mobile number");
+        if (mobileNumber != null && !mobileNumber.matches("[+0-9() .-]{6,30}")) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter a valid mobile number.");
+        }
+        String address = normalizeOptionalProfileText(request.address(), 500, "Address");
+        user.updateDisplayName(displayName);
+        user.updateProfile(age, gender, mobileNumber, address);
+        users.save(user);
+        return profileInfo(user);
+    }
+
+    private String normalizeOptionalProfileText(String value, int maxLength, String label) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.length() > maxLength) {
+            throw new AuthException(
+                HttpStatus.BAD_REQUEST,
+                label + " must be " + maxLength + " characters or fewer."
+            );
+        }
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private ProfileInfo profileInfo(UserAccount user) {
+        return new ProfileInfo(
+            user.getChannel(),
+            user.getDestination(),
+            user.getDisplayName(),
+            user.getAge(),
+            user.getGender(),
+            user.getMobileNumber(),
+            user.getAddress()
+        );
+    }
+
+    @Transactional
+    public void changePassword(String token, PasswordChangeRequest request) {
+        UserAccount user = requireCurrentUser(token);
+        String newPassword = validateNewPassword(request.newPassword());
+        String currentHash = user.getPasswordHash();
+        if (currentHash != null && passwordEncoder.matches(newPassword, currentHash)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose a password different from your current password.");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        users.save(user);
+    }
+
+    private UserAccount requireCurrentUser(String token) {
+        SessionInfo session = getSession(token)
+            .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, "Please sign in to continue."));
+        return users.findById(session.userId())
+            .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, "Please sign in to continue."));
+    }
+
+    private void verifyAgainstDummyHash(String password) {
+        String candidate = password.getBytes(StandardCharsets.UTF_8).length <= PASSWORD_MAX_BYTES ? password : "";
+        passwordEncoder.matches(candidate, dummyPasswordHash);
+    }
+
+    private String validateNewPassword(String password) {
+        if (password == null
+            || password.length() < 8
+            || password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_BYTES) {
+            throw new AuthException(
+                HttpStatus.BAD_REQUEST,
+                "Password must be at least 8 characters and no more than 72 UTF-8 bytes."
+            );
+        }
+        return password;
+    }
+
+    private AuthException invalidPasswordLogin() {
+        return new AuthException(HttpStatus.UNAUTHORIZED, "Email/phone or password is incorrect.");
+    }
+
+    private void verifyAndConsumeOtp(String challengeKey, String codeValue) {
+        String code = codeValue == null ? "" : codeValue.trim();
         if (!code.matches("\\d{6}")) {
             throw new AuthException(HttpStatus.BAD_REQUEST, "Enter the 6-digit verification code.");
         }
-        String displayName = normalizeDisplayName(request.displayName());
-        String challengeKey = challengeKey(recipient.channel(), recipient.destination());
         Instant now = Instant.now();
         OtpChallenge challenge = challenges.findForUpdate(challengeKey)
             .orElseThrow(() -> expiredCode());
@@ -122,7 +312,6 @@ public class AuthService {
         }
 
         challenges.delete(challenge);
-        return createLoginSession(recipient, displayName, now);
     }
 
     @Transactional
@@ -187,14 +376,30 @@ public class AuthService {
             return new Recipient(channel, email);
         }
 
-        String phone = phoneValue == null ? "" : phoneValue.trim();
+        String phone = normalizePhone(phoneValue);
         if (!phone.matches("^\\+[1-9]\\d{7,14}$")) {
             throw new AuthException(
                 HttpStatus.BAD_REQUEST,
-                "Enter a valid phone number in international format, such as +14155550123."
+                "Enter a valid 10-digit mobile number."
             );
         }
         return new Recipient(channel, phone);
+    }
+
+    private String normalizePhone(String phoneValue) {
+        String phone = phoneValue == null ? "" : phoneValue.trim();
+        if (phone.startsWith("+")) {
+            return "+" + phone.substring(1).replaceAll("\\D", "");
+        }
+
+        String digits = phone.replaceAll("\\D", "");
+        if (digits.length() == 10) {
+            return "+91" + digits;
+        }
+        if (digits.length() == 12 && digits.startsWith("91")) {
+            return "+" + digits;
+        }
+        return phone;
     }
 
     private String normalizeDisplayName(String value) {
@@ -227,6 +432,10 @@ public class AuthService {
     }
 
     private LoginResult createLoginSession(Recipient recipient, String displayName, Instant now) {
+        return createLoginSession(recipient, displayName, now, null);
+    }
+
+    private LoginResult createLoginSession(Recipient recipient, String displayName, Instant now, String password) {
         UserAccount user = users.findByChannelAndDestination(recipient.channel(), recipient.destination())
             .orElseGet(() -> new UserAccount(
                 recipient.channel(),
@@ -237,8 +446,16 @@ public class AuthService {
         if (user.getId() != null) {
             user.recordLogin(displayName, now);
         }
+        user.resetPasswordFailures();
+        if (password != null) {
+            user.setPasswordHash(passwordEncoder.encode(password));
+        }
         user = users.save(user);
 
+        return createSession(user, now);
+    }
+
+    private LoginResult createSession(UserAccount user, Instant now) {
         String token = newSessionToken();
         sessions.save(new AuthSession(
             hashSessionToken(token),
@@ -248,8 +465,8 @@ public class AuthService {
         ));
         return new LoginResult(
             token,
-            recipient.channel(),
-            recipient.destination(),
+            user.getChannel(),
+            user.getDestination(),
             user.getDisplayName()
         );
     }
@@ -268,6 +485,10 @@ public class AuthService {
         return channel + ":" + destination;
     }
 
+    private String passwordResetChallengeKey(Recipient recipient) {
+        return "r:" + recipient.channel() + ":" + recipient.destination();
+    }
+
     private AuthException expiredCode() {
         return new AuthException(HttpStatus.BAD_REQUEST, "This code has expired. Request a new code.");
     }
@@ -279,4 +500,14 @@ public class AuthService {
     public record LoginResult(String token, String channel, String destination, String displayName) {}
 
     public record SessionInfo(Long userId, String channel, String destination, String displayName) {}
+
+    public record ProfileInfo(
+        String channel,
+        String destination,
+        String displayName,
+        Integer age,
+        String gender,
+        String mobileNumber,
+        String address
+    ) {}
 }

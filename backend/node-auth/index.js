@@ -1,3 +1,4 @@
+// Runs the optional Node-based OTP server when the Spring API is not used.
 const http = require("node:http");
 const { createHmac, randomInt, timingSafeEqual } = require("node:crypto");
 

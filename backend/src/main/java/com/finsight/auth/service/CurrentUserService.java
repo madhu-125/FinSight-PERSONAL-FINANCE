@@ -1,4 +1,5 @@
 package com.finsight.auth.service;
+// Resolves the authenticated session to its owning user account.
 
 import com.finsight.auth.api.AuthException;
 import com.finsight.auth.service.AuthService.SessionInfo;

@@ -1,9 +1,12 @@
 package com.finsight.auth.api;
 
+// Maps authentication, password, and profile HTTP requests to AuthService.
 import com.finsight.auth.service.AuthService;
 import com.finsight.auth.service.AuthService.LoginResult;
 import com.finsight.auth.service.AuthService.OtpSent;
+import com.finsight.auth.service.AuthService.ProfileInfo;
 import com.finsight.auth.service.AuthService.SessionInfo;
+import java.net.URI;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -16,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,26 +33,106 @@ public class AuthController {
     private final AuthService authService;
     private final boolean secureCookie;
     private final boolean demoAuthEnabled;
+    private final boolean googleOAuthEnabled;
+    private final String clientOrigin;
 
     public AuthController(
         AuthService authService,
         @Value("${finsight.session.secure:false}") boolean secureCookie,
-        @Value("${finsight.demo-auth.enabled:false}") boolean demoAuthEnabled
+        @Value("${finsight.demo-auth.enabled:false}") boolean demoAuthEnabled,
+        @Value("${finsight.google.client-id:}") String googleClientId,
+        @Value("${finsight.google.client-secret:}") String googleClientSecret,
+        @Value("${finsight.client-origin:http://localhost:3000}") String clientOrigin
     ) {
         this.authService = authService;
         this.secureCookie = secureCookie;
         this.demoAuthEnabled = demoAuthEnabled;
+        this.googleOAuthEnabled = !googleClientId.isBlank() && !googleClientSecret.isBlank();
+        this.clientOrigin = clientOrigin.replaceAll("/+$", "");
+    }
+
+    @GetMapping("/oauth/google")
+    public ResponseEntity<Void> googleOAuthStart() {
+        URI destination = !googleOAuthEnabled
+            ? URI.create(clientOrigin + "/?oauthError=google_not_configured")
+            : URI.create("/oauth2/authorization/google");
+        return ResponseEntity.status(HttpStatus.SEE_OTHER).location(destination).build();
     }
 
     @PostMapping("/otp/send")
     public Map<String, Object> sendOtp(@RequestBody OtpSendRequest request) {
         OtpSent sent = authService.sendOtp(request);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("sent", true);
+        body.put("channel", sent.channel());
+        body.put("expiresInSeconds", sent.expiresInSeconds());
+        body.put("resendAfterSeconds", sent.resendAfterSeconds());
+        return body;
+    }
+
+    @PostMapping("/password/login")
+    public ResponseEntity<Map<String, Object>> passwordLogin(@RequestBody PasswordLoginRequest request) {
+        LoginResult result = authService.passwordLogin(request);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("authenticated", true);
+        body.put("channel", result.channel());
+        body.put(result.channel().equals("email") ? "email" : "phone", result.destination());
+        if (result.displayName() != null) {
+            body.put("displayName", result.displayName());
+        }
+        return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE, sessionCookie(result.token(), SESSION_LIFETIME).toString())
+            .body(body);
+    }
+
+    @PostMapping("/password/forgot")
+    public Map<String, Object> sendPasswordResetOtp(@RequestBody OtpSendRequest request) {
+        authService.sendPasswordResetOtp(request);
         return Map.of(
             "sent", true,
-            "channel", sent.channel(),
-            "expiresInSeconds", sent.expiresInSeconds(),
-            "resendAfterSeconds", sent.resendAfterSeconds()
+            "message", "If an account exists for that address or number, a reset code has been sent."
         );
+    }
+
+    @PostMapping("/password/reset")
+    public Map<String, Object> resetPassword(@RequestBody PasswordResetRequest request) {
+        authService.resetPassword(request);
+        return Map.of("reset", true);
+    }
+
+    @PutMapping("/password")
+    public Map<String, Object> changePassword(
+        @CookieValue(name = COOKIE_NAME, required = false) String token,
+        @RequestBody PasswordChangeRequest request
+    ) {
+        authService.changePassword(token, request);
+        return Map.of("updated", true);
+    }
+
+    @PutMapping("/profile")
+    public Map<String, Object> updateProfile(
+        @CookieValue(name = COOKIE_NAME, required = false) String token,
+        @RequestBody ProfileUpdateRequest request
+    ) {
+        return profileResponse(authService.updateProfile(token, request));
+    }
+
+    @GetMapping("/profile")
+    public Map<String, Object> profile(
+        @CookieValue(name = COOKIE_NAME, required = false) String token
+    ) {
+        return profileResponse(authService.getProfile(token));
+    }
+
+    private Map<String, Object> profileResponse(ProfileInfo profile) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("displayName", profile.displayName());
+        body.put(profile.channel().equals("email") ? "email" : "phone", profile.destination());
+        body.put("age", profile.age());
+        body.put("gender", profile.gender());
+        body.put("mobileNumber", profile.mobileNumber());
+        body.put("address", profile.address());
+        return body;
     }
 
     @PostMapping("/otp/verify")

@@ -1,28 +1,57 @@
 # FinSight
 
-## Run locally with email or SMS OTP
+## Project layout
 
-The OTP flow uses a small Node.js authentication server, Resend for email, and Twilio for SMS. Use Node.js 20.6 or newer.
+- `frontend/` contains the React app, assets, and its npm scripts.
+- `backend/` contains the Spring Boot API, the optional `node-auth/` OTP server, and `database/migrations/`.
+- `backend/database/migrations/` contains Flyway SQL migrations. Maven packages these files into the Spring API at build time.
+- Root `.env` contains local backend secrets; `frontend/.env` contains only React settings. Neither file should be committed.
 
-1. Copy `.env.example` to `.env`.
-2. Set `RESEND_API_KEY` and a verified `RESEND_FROM_EMAIL` from Resend.
-3. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER` from Twilio. The Twilio number must be able to send SMS.
-4. Generate an `OTP_SECRET` locally with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` and put the result in `.env`.
-5. Run `npm run server` in one terminal and `npm start` in another.
+The React frontend owns page rendering and user interactions; the Spring backend exposes authenticated APIs and delegates business rules and database access to its services.
 
-Never commit `.env` or share its values. Phone numbers must include the country code in E.164 format, such as `+14155550123`. OTP codes expire after 10 minutes, can be resent after 60 seconds, and allow five verification attempts.
+## Configure and run
 
-The existing password form is still a demo and is not checked against a user database; OTP verifies access to the selected email address or phone number. Add a real user store before using this as production authentication.
+1. Copy `.env.example` to root `.env` and set your MySQL and OTP provider values.
+2. Copy `frontend/.env.example` to `frontend/.env` and set the API URL.
+3. Start the Spring API from `backend`:
 
-For local UI demos only, set both `REACT_APP_DEMO_AUTH=true` and `DEMO_AUTH_ENABLED=true` in `.env` to let sign-in continue with any entered email/phone and password without OTP. The backend demo-session endpoint is disabled by default; keep both flags `false` when testing OTP or deploying.
+   ```text
+   mvn spring-boot:run
+   ```
 
-## MySQL-backed transactions
+4. Start the React app from `frontend`:
 
-Transactions, accounts, and monthly budgets are saved to the signed-in user's MySQL account. Transaction details include description, amount, type, category, and date; accounts use name, type, and balance; budgets use category, monthly limit, and month. Set `REACT_APP_API_URL=http://localhost:8080`, configure the database values in `.env`, and start the Spring API from `backend` with `mvn spring-boot:run` before starting React. These list and create requests require an authenticated session. To use the Node OTP server instead, leave `REACT_APP_API_URL` empty and run `npm run server`; that server does not include transaction, account, or budget storage.
+   ```text
+   npm install
+   npm start
+   ```
 
-## Available Scripts
+Open `http://localhost:3000`. Sign-in requires the account password with either the email address or mobile number. OTP is not required for sign-in.
 
-`npm start` runs the web app. `npm run server` runs the OTP API. `npm test -- --watchAll=false` runs the React tests, and `npm run test:server` runs the authentication API tests.
+Email OTP delivery (used for signup and password resets) requires a valid `RESEND_API_KEY` and a sender address verified by Resend in the root `.env`. SMS verification requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER`. Restart the Spring API after changing these values. For local-only testing without delivery-provider credentials, `OTP_CONSOLE_DELIVERY_ENABLED=true` logs codes in the backend console; never enable this in production.
+
+The backend Google OAuth integration requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the root `.env`; register `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI in Google Cloud. Social sign-in buttons are currently hidden from the UI.
+
+For mobile codes, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER` in the root `.env`, then restart the Spring API. These values must come from a Twilio account with SMS enabled; do not commit or share them.
+
+The optional Node server supports OTP authentication but not finance data storage. Use the Spring API for finance endpoints.
+
+## Sign-in and profile
+
+Sign-up sends an OTP to the email address or mobile number before creating the account. Passwords must be at least 8 characters and no more than 72 UTF-8 bytes. Sign-in requires the account password for email or mobile; OTP is not used for sign-in. **Forgot password?** sends a one-time reset code to the registered contact. Profile name, age, gender, mobile contact, and address are stored with the signed-in account; the editable profile mobile is separate from the verified sign-in phone. Photos and notification preferences remain local to the browser. Photos can be uploaded or taken as a selfie, resized, and reframed in Profile.
+
+Budgets can be created as weekly, monthly, or fixed two-month periods. On the Budgets page, choose a period and download a PDF containing the saved budgets of that frequency.
+Transaction reports can be downloaded as a selected day, week, or month. Selfies use the browser camera when available; uploaded photos remain an alternative.
+
+## Database and tests
+
+Transactions, accounts, and budgets are stored per signed-in user in MySQL. Flyway migrations live in `backend/database/migrations/` and are bundled with the Spring API; you do not need to run them manually.
+
+- Frontend tests/build: run `npm test -- --watchAll=false` or `npm run build` from `frontend`.
+- Node OTP server tests: run `npm run test:server` from `frontend`.
+- Spring API tests: run `mvn test` from `backend` (uses an isolated H2 database).
+
+Never commit `.env` files or share their values. Phone numbers must include the country code in E.164 format, such as `+14155550123`. OTP codes expire after 10 minutes, can be resent after 60 seconds, and allow five verification attempts.
 
 ## Create React App
 

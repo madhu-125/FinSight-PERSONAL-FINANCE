@@ -1,4 +1,5 @@
 package com.finsight.auth.api;
+// Carries an expected authentication or validation error with its HTTP status.
 
 import org.springframework.http.HttpStatus;
 

@@ -1,4 +1,5 @@
 package com.finsight.auth.api;
+// Defines the account fields returned to frontend clients.
 
 import java.math.BigDecimal;
 

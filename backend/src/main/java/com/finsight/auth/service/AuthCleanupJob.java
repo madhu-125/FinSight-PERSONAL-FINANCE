@@ -1,4 +1,5 @@
 package com.finsight.auth.service;
+// Periodically removes expired sessions and verification challenges.
 
 import com.finsight.auth.repository.AuthSessionRepository;
 import com.finsight.auth.repository.OtpChallengeRepository;

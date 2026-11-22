@@ -1,3 +1,4 @@
+// Tests the optional Node OTP server's authentication behavior.
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const { createAuthServer } = require("./index");
