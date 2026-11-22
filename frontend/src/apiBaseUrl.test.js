@@ -22,3 +22,8 @@ test('adds the Render domain to a bare service hostname', () => {
   expect(getApiBaseUrl('finsight-api-ne8t', 'finsight-web-p9bg.onrender.com'))
     .toBe('https://finsight-api-ne8t.onrender.com');
 });
+
+test('adds the Render domain to a bare service hostname that already has a scheme', () => {
+  expect(getApiBaseUrl('https://finsight-api-ne8t', 'finsight-web-p9bg.onrender.com'))
+    .toBe('https://finsight-api-ne8t.onrender.com');
+});

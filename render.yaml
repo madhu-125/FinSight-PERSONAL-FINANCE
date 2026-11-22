@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./backend/Dockerfile
-    dockerContext: .
+    dockerContext: ./backend
     healthCheckPath: /api/auth/session
     envVars:
       - key: SESSION_COOKIE_SECURE

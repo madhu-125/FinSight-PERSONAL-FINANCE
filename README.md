@@ -34,7 +34,8 @@ The root `render.yaml` defines a React static site and a Spring Boot Docker web 
 
 1. Make sure this repository's `main` branch contains `render.yaml` and `backend/Dockerfile`.
 2. In Render, choose **New > Blueprint**, connect `madhu-125/FinSight-PERSONAL-FINANCE`, and deploy the Blueprint from `main`.
-3. Enter the external MySQL JDBC URL, username, and password when prompted. Use a URL with the database name included, for example `jdbc:mysql://host:3306/finsight?useSSL=true&serverTimezone=UTC&allowPublicKeyRetrieval=true`. Ensure that the database provider permits connections from Render and that it accepts external connections.
+3. Enter the external MySQL JDBC URL, username, and password when prompted. For TiDB Cloud, use the cluster's public endpoint on port `4000` and a JDBC URL such as `jdbc:mysql://<cluster-host>:4000/<database-name>?sslMode=VERIFY_IDENTITY&enabledTLSProtocols=TLSv1.2&serverTimezone=UTC`. Set the TiDB-provided username and password in the matching Render environment variables. Ensure the named database exists and the cluster accepts connections from Render.
+   - If deploying the Blueprint has already completed, add or update `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` under the API service's **Environment** settings, then redeploy. Keep credentials in Render or your local ignored `.env` file; never commit them or paste them into chat.
 4. Email signup and password recovery remain unavailable until you add `RESEND_API_KEY` and a Resend-verified `RESEND_FROM_EMAIL` to the API service's environment. Add Twilio credentials there if SMS verification is needed.
 5. Wait for both services to deploy. The frontend build receives the API hostname from the Blueprint; the API receives the frontend hostname for CORS and OAuth redirects.
 

@@ -2,13 +2,15 @@
 const LOCAL_HOSTNAMES = ["localhost", "127.0.0.1"];
 
 export function getApiBaseUrl(configuredUrl, browserHostname) {
-  if (!configuredUrl) return "";
+  if (!configuredUrl?.trim()) return "";
 
-  const bareRenderHostname = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(configuredUrl);
-  const url = /^[a-z][a-z\d+.-]*:\/\//i.test(configuredUrl)
-    ? configuredUrl
-    : `https://${bareRenderHostname ? `${configuredUrl}.onrender.com` : configuredUrl}`;
-  const apiUrl = new URL(url, window.location.origin);
+  const value = configuredUrl.trim();
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
+  const apiUrl = new URL(hasScheme ? value : `https://${value}`, window.location.origin);
+  const bareRenderHostname = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(apiUrl.hostname);
+  if (!LOCAL_HOSTNAMES.includes(apiUrl.hostname) && bareRenderHostname) {
+    apiUrl.hostname = `${apiUrl.hostname}.onrender.com`;
+  }
   if (
     LOCAL_HOSTNAMES.includes(browserHostname)
     && LOCAL_HOSTNAMES.includes(apiUrl.hostname)
