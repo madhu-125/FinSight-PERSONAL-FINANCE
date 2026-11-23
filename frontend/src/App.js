@@ -2851,16 +2851,6 @@ function App() {
           </div>
 
           <div className="top-actions">
-            <button
-              className="dashboard-nav-button back-nav-button"
-              type="button"
-              aria-label="Go back"
-              onClick={handleGoBack}
-              disabled={pageHistory.length === 0}
-            >
-              <ArrowLeft size={16} />
-              <span>Back</span>
-            </button>
             {activePage !== "Dashboard" && (
               <button
                 className="dashboard-nav-button"
@@ -3440,6 +3430,20 @@ function App() {
               Back to Dashboard
             </button>
           </section>
+        )}
+        {activePage !== "AI Assistant" && (
+          <div className="page-back-navigation">
+            <button
+              className="dashboard-nav-button back-nav-button"
+              type="button"
+              aria-label="Go back"
+              onClick={handleGoBack}
+              disabled={pageHistory.length === 0}
+            >
+              <ArrowLeft size={16} />
+              <span>Back</span>
+            </button>
+          </div>
         )}
       </main>
       {isTransactionFormOpen && (

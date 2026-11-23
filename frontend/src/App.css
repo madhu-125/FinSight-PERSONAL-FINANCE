@@ -298,6 +298,14 @@ button {
   cursor: not-allowed;
 }
 
+.page-back-navigation {
+  display: flex;
+  justify-content: flex-start;
+  margin: 24px 0 8px;
+  padding-top: 16px;
+  border-top: 1px solid #272a3d;
+}
+
 .search-box {
   width: 225px;
   height: 39px;

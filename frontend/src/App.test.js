@@ -397,7 +397,8 @@ test('AI insights, alerts, profile settings, and Dashboard navigation use saved 
   fireEvent.click(screen.getByRole('button', { name: 'What was my top spending category?' }));
   expect(await screen.findByText(/Food is your top recorded spending category.*₹900\.00/)).toBeInTheDocument();
   expect(screen.getByText(/Answers use only your saved app data and stay in this app/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+  expect(screen.queryByRole('button', { name: 'Go back' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Go to Dashboard' }));
   expect(await screen.findByRole('heading', { name: /welcome, fresh user!/i })).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Notifications, 3 alerts' }));
