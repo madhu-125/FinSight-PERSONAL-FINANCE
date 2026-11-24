@@ -60,20 +60,14 @@ function normalizeEmail(value) {
   return email;
 }
 
-function normalizePhone(value) {
-  if (typeof value !== "string") return null;
-  const phone = value.trim();
-  return /^\+[1-9]\d{7,14}$/.test(phone) ? phone : null;
-}
-
 function createCodeHash(challengeKey, code, secret) {
   return createHmac("sha256", secret).update(`${challengeKey}:${code}`).digest();
 }
 
-function createSessionToken(channel, destination, secret, now) {
+function createSessionToken(email, secret, now) {
   const payload = Buffer.from(JSON.stringify({
-    channel,
-    [channel === "email" ? "email" : "phone"]: destination,
+    channel: "email",
+    email,
     expiresAt: now + SESSION_LIFETIME_SECONDS * 1000,
   })).toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("base64url");
@@ -99,8 +93,7 @@ function getSession(request, secret, now) {
 
   try {
     const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    const hasValidIdentity = (session.channel === "email" && typeof session.email === "string")
-      || (session.channel === "sms" && typeof session.phone === "string");
+    const hasValidIdentity = session.channel === "email" && typeof session.email === "string";
     if (!hasValidIdentity || session.expiresAt <= now) return null;
     return session;
   } catch {
@@ -111,9 +104,6 @@ function getSession(request, secret, now) {
 function createAuthServer({
   resendApiKey,
   fromEmail,
-  twilioAccountSid,
-  twilioAuthToken,
-  twilioFromNumber,
   otpSecret,
   clientOrigin = "http://localhost:3000",
   fetchImpl = fetch,
@@ -182,20 +172,14 @@ function createAuthServer({
     }
 
     const channel = body.channel || "email";
-    if (channel !== "email" && channel !== "sms") {
-      sendJson(response, 400, { error: "Choose email or SMS verification." });
+    if (channel !== "email") {
+      sendJson(response, 400, { error: "OTP verification is available by email only." });
       return;
     }
 
-    const destination = channel === "email"
-      ? normalizeEmail(body.email)
-      : normalizePhone(body.phone);
+    const destination = normalizeEmail(body.email);
     if (!destination) {
-      sendJson(response, 400, {
-        error: channel === "email"
-          ? "Enter a valid email address."
-          : "Enter a valid phone number in international format, such as +14155550123.",
-      });
+      sendJson(response, 400, { error: "Enter a valid email address." });
       return;
     }
 
@@ -214,60 +198,36 @@ function createAuthServer({
       const code = String(randomInt(100000, 1000000));
       let providerResponse;
       try {
-        if (channel === "email") {
-          if (!resendApiKey || !fromEmail) {
-            sendJson(response, 503, { error: "Email verification is not configured on this server." });
-            return;
-          }
-          providerResponse = await fetchImpl("https://api.resend.com/emails", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${resendApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              from: fromEmail,
-              to: [destination],
-              subject: "Your FinSight verification code",
-              text: `Your FinSight verification code is ${code}. It expires in 10 minutes.`,
-              html: `<p>Your FinSight verification code is <strong>${code}</strong>.</p><p>It expires in 10 minutes.</p>`,
-            }),
-          });
-        } else {
-          if (!twilioAccountSid || !twilioAuthToken || !twilioFromNumber) {
-            sendJson(response, 503, { error: "SMS verification is not configured on this server." });
-            return;
-          }
-          const credentials = Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64");
-          const message = new URLSearchParams({
-            To: destination,
-            From: twilioFromNumber,
-            Body: `Your FinSight verification code is ${code}. It expires in 10 minutes.`,
-          });
-          providerResponse = await fetchImpl(
-            `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}/Messages.json`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Basic ${credentials}`,
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: message.toString(),
-            }
-          );
+        if (!resendApiKey || !fromEmail) {
+          sendJson(response, 503, { error: "Email verification is not configured on this server." });
+          return;
         }
+        providerResponse = await fetchImpl("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: fromEmail,
+            to: [destination],
+            subject: "Your FinSight verification code",
+            text: `Your FinSight verification code is ${code}. It expires in 10 minutes.`,
+            html: `<p>Your FinSight verification code is <strong>${code}</strong>.</p><p>It expires in 10 minutes.</p>`,
+          }),
+        });
       } catch (error) {
-        console.error(`${channel === "email" ? "Resend" : "Twilio"} request failed:`, error.message);
+        console.error("Resend request failed:", error.message);
         sendJson(response, 502, {
-          error: `Could not send the verification ${channel === "email" ? "email" : "SMS"}. Please try again.`,
+          error: "Could not send the verification email. Please try again.",
         });
         return;
       }
 
       if (!providerResponse.ok) {
-        console.error(`${channel === "email" ? "Resend" : "Twilio"} request failed with status:`, providerResponse.status);
+        console.error("Resend request failed with status:", providerResponse.status);
         sendJson(response, 502, {
-          error: `Could not send the verification ${channel === "email" ? "email" : "SMS"}. Check the ${channel === "email" ? "email" : "SMS"} service configuration.`,
+          error: "Could not send the verification email. Check the email service configuration.",
         });
         return;
       }
@@ -313,7 +273,7 @@ function createAuthServer({
     }
 
     challenges.delete(challengeKey);
-    const token = createSessionToken(channel, destination, otpSecret, now());
+    const token = createSessionToken(destination, otpSecret, now());
     sendJson(response, 200, { verified: true, channel }, {
       "Set-Cookie": `${AUTH_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_LIFETIME_SECONDS}${secureCookie}`,
     });
@@ -326,15 +286,11 @@ function startServer() {
   const {
     RESEND_API_KEY,
     RESEND_FROM_EMAIL,
-    TWILIO_ACCOUNT_SID,
-    TWILIO_AUTH_TOKEN,
-    TWILIO_FROM_NUMBER,
     OTP_SECRET,
   } = process.env;
   const hasEmailProvider = RESEND_API_KEY && RESEND_FROM_EMAIL;
-  const hasSmsProvider = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER;
-  if ((!hasEmailProvider && !hasSmsProvider) || !OTP_SECRET || OTP_SECRET.length < 32) {
-    console.error("Configure at least one OTP delivery provider and an OTP_SECRET of at least 32 characters in .env.");
+  if (!hasEmailProvider || !OTP_SECRET || OTP_SECRET.length < 32) {
+    console.error("Configure RESEND_API_KEY, RESEND_FROM_EMAIL, and an OTP_SECRET of at least 32 characters in .env.");
     process.exitCode = 1;
     return;
   }
@@ -342,9 +298,6 @@ function startServer() {
   const server = createAuthServer({
     resendApiKey: RESEND_API_KEY,
     fromEmail: RESEND_FROM_EMAIL,
-    twilioAccountSid: TWILIO_ACCOUNT_SID,
-    twilioAuthToken: TWILIO_AUTH_TOKEN,
-    twilioFromNumber: TWILIO_FROM_NUMBER,
     otpSecret: OTP_SECRET,
     clientOrigin: process.env.CLIENT_ORIGIN || "http://localhost:3000",
   });

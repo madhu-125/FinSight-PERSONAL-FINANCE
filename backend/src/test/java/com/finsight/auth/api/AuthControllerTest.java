@@ -161,46 +161,40 @@ class AuthControllerTest {
     }
 
     @Test
-    void tenDigitIndianMobileAddsCountryCode() throws Exception {
+    void otpEndpointsRejectSmsVerification() throws Exception {
         mockMvc.perform(post("/api/auth/otp/send")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"channel":"sms","phone":"7337492378"}
                     """))
-            .andExpect(status().isOk());
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("OTP verification is available by email only."));
 
-        verify(delivery).send(eq("sms"), eq("+917337492378"), org.mockito.ArgumentMatchers.anyString());
-    }
+        mockMvc.perform(post("/api/auth/otp/verify")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"sms","phone":"+14155550123","code":"123456"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("OTP verification is available by email only."));
 
-    @Test
-    void smsOtpCreatesUserSession() throws Exception {
-        mockMvc.perform(post("/api/auth/otp/send")
+        mockMvc.perform(post("/api/auth/password/forgot")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"channel":"sms","phone":"+14155550123"}
                     """))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.sent").value(true))
-            .andExpect(jsonPath("$.channel").value("sms"));
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("OTP verification is available by email only."));
 
-        ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
-        verify(delivery).send(eq("sms"), eq("+14155550123"), code.capture());
-        MvcResult verification = mockMvc.perform(post("/api/auth/otp/verify")
+        mockMvc.perform(post("/api/auth/password/reset")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                    {"channel":"sms","phone":"+14155550123","code":"%s","displayName":"SMS User"}
-                    """.formatted(code.getValue())))
-            .andExpect(status().isOk())
-            .andExpect(header().string("Set-Cookie", containsString("HttpOnly")))
-            .andExpect(jsonPath("$.verified").value(true))
-            .andReturn();
+                    {"channel":"sms","phone":"+14155550123","code":"123456","newPassword":"ResetPass123!"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("OTP verification is available by email only."));
 
-        Cookie sessionCookie = verification.getResponse().getCookie("finsight_session");
-        mockMvc.perform(get("/api/auth/session").cookie(sessionCookie))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.authenticated").value(true))
-            .andExpect(jsonPath("$.phone").value("+14155550123"))
-            .andExpect(jsonPath("$.displayName").value("SMS User"));
+        verify(delivery, never()).send(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -495,19 +489,6 @@ class AuthControllerTest {
     }
 
     @Test
-    void smsOtpAddsIndiaCountryCodeToTenDigitNumber() throws Exception {
-        mockMvc.perform(post("/api/auth/otp/send")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {"channel":"sms","phone":"4155550123"}
-                    """))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.sent").value(true));
-
-        verify(delivery).send(eq("sms"), eq("+914155550123"), org.mockito.ArgumentMatchers.anyString());
-    }
-
-    @Test
     void transactionsRequireSessionAndAreScopedToTheSignedInUser() throws Exception {
         mockMvc.perform(get("/api/transactions"))
             .andExpect(status().isUnauthorized())
@@ -538,6 +519,19 @@ class AuthControllerTest {
             .andExpect(jsonPath("$.length()").value(1));
 
         Cookie secondUser = demoLogin("second-user");
+        mockMvc.perform(get("/api/transactions").cookie(secondUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+
+        mockMvc.perform(delete("/api/transactions"))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/api/transactions").cookie(returningUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.deleted").value(true))
+            .andExpect(jsonPath("$.count").value(1));
+        mockMvc.perform(get("/api/transactions").cookie(returningUser))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
         mockMvc.perform(get("/api/transactions").cookie(secondUser))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(0));

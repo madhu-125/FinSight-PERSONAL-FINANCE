@@ -1,5 +1,5 @@
 // React application for authenticated finance, profile, and account workflows.
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Login, { PullLamp } from "./Login";
 import {
   LayoutDashboard,
@@ -25,22 +25,16 @@ import {
   CalendarDays,
   Trash2,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
-import { motion } from "framer-motion";
-import { jsPDF } from "jspdf";
 import { API_BASE_URL } from "./apiBaseUrl";
+import { LANGUAGES, matchesAssistantIntent, translate } from "./i18n";
 import "./App.css";
+
+const CashFlowChart = React.lazy(() => import("./FinanceCharts").then((module) => ({
+  default: module.CashFlowChart,
+})));
+const SpendingCategoryChart = React.lazy(() => import("./FinanceCharts").then((module) => ({
+  default: module.SpendingCategoryChart,
+})));
 
 const navigation = [
   { name: "Dashboard", icon: LayoutDashboard },
@@ -52,15 +46,115 @@ const navigation = [
   { name: "AI Assistant", icon: MessageCircle },
   { name: "Profile", icon: UserRound },
 ];
+const PAGE_TRANSLATION_KEYS = {
+  Dashboard: "dashboard",
+  Transactions: "transactions",
+  Accounts: "accounts",
+  Analytics: "analytics",
+  Budgets: "budgets",
+  "AI Insights": "insights",
+  "AI Assistant": "assistant",
+  Profile: "profile",
+  Settings: "settings",
+};
 
 const AUTH_STORAGE_KEY = "finsight-authenticated";
+const LANGUAGE_STORAGE_KEY = "finsight-language";
 const HIGH_EXPENSE_RATIO = 0.8;
 const LOW_CASH_FLOW_RATIO = 0.1;
+const HIGH_EXPENSE_AMOUNT = 10000;
+const APP_THEMES = ["dark", "light", "gray"];
+const DASHBOARD_COLORS = [
+  { name: "Violet", value: "#9b7bff" },
+  { name: "Mint", value: "#38d9b2" },
+  { name: "Ocean", value: "#5e9cff" },
+  { name: "Rose", value: "#ff7f9f" },
+  { name: "Amber", value: "#ffb86b" },
+  { name: "Coral", value: "#ff735c" },
+  { name: "Sky", value: "#45c7f0" },
+  { name: "Indigo", value: "#5969d6" },
+  { name: "Lime", value: "#a6d854" },
+  { name: "Teal", value: "#17a2a4" },
+  { name: "Magenta", value: "#d66adf" },
+  { name: "Slate", value: "#7e8da5" },
+  { name: "Gray", value: "#858b96" },
+  { name: "Graphite", value: "#626a73" },
+  { name: "Crimson", value: "#e84855" },
+  { name: "Tangerine", value: "#f28c28" },
+  { name: "Gold", value: "#f2c94c" },
+  { name: "Chartreuse", value: "#b3d334" },
+  { name: "Emerald", value: "#00a878" },
+  { name: "Forest", value: "#208b3a" },
+  { name: "Aqua", value: "#2dd4bf" },
+  { name: "Cyan", value: "#22d3ee" },
+  { name: "Azure", value: "#2d9cdb" },
+  { name: "Cobalt", value: "#3465d9" },
+  { name: "Royal", value: "#4169e1" },
+  { name: "Periwinkle", value: "#7c83fd" },
+  { name: "Lavender", value: "#b388ff" },
+  { name: "Orchid", value: "#c77dff" },
+  { name: "Plum", value: "#9d4edd" },
+  { name: "Fuchsia", value: "#e63ec9" },
+  { name: "Raspberry", value: "#d63384" },
+  { name: "Brick", value: "#c44536" },
+  { name: "Copper", value: "#c2774a" },
+  { name: "Seafoam", value: "#5de0a5" },
+];
 const CURRENCY_FORMATTER = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
 });
 const ANALYTICS_COLORS = ["#9b7bff", "#38d9b2", "#ffb86b", "#5e9cff", "#ff7f9f", "#7ed6df"];
+
+function getComplementaryColor(hexColor) {
+  const match = /^#([0-9a-f]{6})$/i.exec(hexColor);
+  if (!match) return "#64a4ff";
+
+  const color = match[1];
+  const red = parseInt(color.slice(0, 2), 16) / 255;
+  const green = parseInt(color.slice(2, 4), 16) / 255;
+  const blue = parseInt(color.slice(4, 6), 16) / 255;
+  const maximum = Math.max(red, green, blue);
+  const minimum = Math.min(red, green, blue);
+  const lightness = (maximum + minimum) / 2;
+  const difference = maximum - minimum;
+  let hue = 0;
+  let saturation = 0;
+
+  if (difference !== 0) {
+    saturation = difference / (1 - Math.abs(2 * lightness - 1));
+    if (maximum === red) hue = ((green - blue) / difference) % 6;
+    else if (maximum === green) hue = (blue - red) / difference + 2;
+    else hue = (red - green) / difference + 4;
+    hue = (hue * 60 + 360) % 360;
+  }
+
+  hue = (hue + 180) % 360;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const hueSection = hue / 60;
+  const secondary = chroma * (1 - Math.abs((hueSection % 2) - 1));
+  const matchValue = lightness - chroma / 2;
+  let rgb;
+  if (hueSection < 1) rgb = [chroma, secondary, 0];
+  else if (hueSection < 2) rgb = [secondary, chroma, 0];
+  else if (hueSection < 3) rgb = [0, chroma, secondary];
+  else if (hueSection < 4) rgb = [0, secondary, chroma];
+  else if (hueSection < 5) rgb = [secondary, 0, chroma];
+  else rgb = [chroma, 0, secondary];
+
+  return `#${rgb.map((channel) => (
+    Math.round((channel + matchValue) * 255).toString(16).padStart(2, "0")
+  )).join("")}`;
+}
+
+function getContrastingTextColor(hexColor) {
+  const channels = hexColor.slice(1).match(/.{2}/g)?.map((channel) => parseInt(channel, 16) / 255);
+  if (!channels || channels.length !== 3) return "#10121e";
+  const luminance = channels
+    .map((channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
+    .reduce((total, channel) => total + channel, 0);
+  return luminance > 0.38 ? "#171421" : "#ffffff";
+}
 
 function getAnalyticsData(transactions) {
   const now = new Date();
@@ -420,9 +514,11 @@ function AiInsightsView({ monthSummary, onViewTransactions }) {
   );
 }
 
-function getAssistantResponse(query, context) {
+function getAssistantResponse(query, context, language) {
   const normalized = query.toLocaleLowerCase();
   const period = context.rangeLabel;
+  const matches = (intent) => matchesAssistantIntent(language, intent, normalized);
+  const format = (key, values) => translate(language, key, values);
   const expensesByCategory = context.transactions
     .filter((transaction) => transaction.type === "expense")
     .reduce((totals, transaction) => {
@@ -431,45 +527,64 @@ function getAssistantResponse(query, context) {
       return totals;
     }, new Map());
 
-  if (/top|most|category|where/.test(normalized) && /spend|expense|category|where/.test(normalized)) {
+  if (/\b(?:purpose|propose|proposal)\b|what is finsight|what does this (app|application)|what can this (app|application)/.test(normalized) || matches("purpose")) {
+    return format("purposeAnswer");
+  }
+  if ((/top|most|category|where/.test(normalized) && /spend|expense|category|where/.test(normalized)) || matches("category")) {
     const topCategory = [...expensesByCategory.entries()].sort((left, right) => right[1] - left[1])[0];
     return topCategory
-      ? `${topCategory[0]} is your top recorded spending category for ${period}, at ${CURRENCY_FORMATTER.format(topCategory[1])}.`
-      : `There are no recorded expenses for ${period} yet, so I can't identify a top spending category.`;
+      ? format("categoryAnswer", { category: topCategory[0], period, amount: CURRENCY_FORMATTER.format(topCategory[1]) })
+      : format("noCategoryAnswer", { period });
   }
-  if (/income|earn|salary|received/.test(normalized)) {
-    return `You recorded ${CURRENCY_FORMATTER.format(context.income)} in income for ${period}.`;
+  if (/income|earn|salary|received/.test(normalized) || matches("income")) {
+    return format("incomeAnswer", { amount: CURRENCY_FORMATTER.format(context.income), period });
   }
-  if (/expense|spend|spent|purchase/.test(normalized)) {
-    return `You recorded ${CURRENCY_FORMATTER.format(context.expenses)} in expenses for ${period}.`;
+  if (/expense|spend|spent|purchase/.test(normalized) || matches("expenses")) {
+    return format("expensesAnswer", { amount: CURRENCY_FORMATTER.format(context.expenses), period });
   }
-  if (/cash flow|cashflow|net|left over|surplus/.test(normalized)) {
+  if (/cash flow|cashflow|net|left over|surplus/.test(normalized) || matches("cashFlow")) {
     const net = context.income - context.expenses;
-    return `Your recorded net cash flow for ${period} is ${CURRENCY_FORMATTER.format(net)} (${CURRENCY_FORMATTER.format(context.income)} income minus ${CURRENCY_FORMATTER.format(context.expenses)} expenses).`;
+    return format("cashFlowAnswer", {
+      net: CURRENCY_FORMATTER.format(net),
+      income: CURRENCY_FORMATTER.format(context.income),
+      expenses: CURRENCY_FORMATTER.format(context.expenses),
+      period,
+    });
   }
-  if (/budget|limit/.test(normalized)) {
+  if (/budget|limit/.test(normalized) || matches("budget")) {
     return context.budgets.length
-      ? `You have ${context.budgets.length} saved budget${context.budgets.length === 1 ? "" : "s"}. Your recorded expenses for ${period} total ${CURRENCY_FORMATTER.format(context.expenses)}. Review the Budgets page to compare spending with each budget's period and limit.`
-      : "You don't have any saved budgets yet. Add one on the Budgets page to start tracking category limits.";
+      ? format("budgetsAnswer", {
+        count: context.budgets.length,
+        period,
+        amount: CURRENCY_FORMATTER.format(context.expenses),
+      })
+      : format("noBudgetsAnswer");
   }
-  if (/balance|account/.test(normalized)) {
-    return `Your account balance is ${CURRENCY_FORMATTER.format(context.balance)}. This is your current combined balance, not a historical balance for ${period}.`;
+  if (/balance|account/.test(normalized) || matches("balance")) {
+    return format("balanceAnswer", { amount: CURRENCY_FORMATTER.format(context.balance), period });
   }
-  return "I can help with your recorded income, expenses, top spending category, net cash flow, budgets, or account balance. Try one of the suggested questions.";
+  return format("assistantFallback");
 }
 
-function AiAssistantView({ context }) {
+function AiAssistantView({ context, language }) {
   const [messages, setMessages] = useState([{
     role: "assistant",
-    text: `Hi! I can help you understand your saved finances for ${context.rangeLabel}. What would you like to know?`,
+    text: translate(language, "assistantGreeting", { period: context.rangeLabel }),
   }]);
   const [question, setQuestion] = useState("");
+  const messagesRef = useRef(null);
   const suggestions = [
-    "How much did I spend?",
-    "What was my income?",
-    "What was my top spending category?",
-    "How is my net cash flow?",
+    translate(language, "assistantPurposeQuestion"),
+    translate(language, "assistantSpendQuestion"),
+    translate(language, "assistantIncomeQuestion"),
+    translate(language, "assistantTopCategoryQuestion"),
+    translate(language, "assistantCashFlowQuestion"),
   ];
+
+  useEffect(() => {
+    const messagesElement = messagesRef.current;
+    if (messagesElement) messagesElement.scrollTop = messagesElement.scrollHeight;
+  }, [messages]);
 
   const askQuestion = (value) => {
     const prompt = value.trim();
@@ -477,7 +592,7 @@ function AiAssistantView({ context }) {
     setMessages((current) => [
       ...current,
       { role: "user", text: prompt },
-      { role: "assistant", text: getAssistantResponse(prompt, context) },
+      { role: "assistant", text: getAssistantResponse(prompt, context, language) },
     ]);
     setQuestion("");
   };
@@ -486,12 +601,12 @@ function AiAssistantView({ context }) {
     <section className="assistant-page">
       <div className="transactions-page-header">
         <div>
-          <h2>AI Assistant</h2>
-          <p>Ask questions about your saved financial activity for {context.rangeLabel}.</p>
+          <h2>{translate(language, "assistant")}</h2>
+          <p>{translate(language, "assistantDescription", { period: context.rangeLabel })}</p>
         </div>
       </div>
       <div className="assistant-chat panel">
-        <div className="assistant-messages" aria-live="polite" aria-label="Conversation">
+        <div ref={messagesRef} className="assistant-messages" aria-live="polite" aria-label="Conversation">
           {messages.map((message, index) => (
             <div className={`assistant-message assistant-message-${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "assistant" && <span className="assistant-message-icon"><Sparkles size={16} /></span>}
@@ -513,19 +628,19 @@ function AiAssistantView({ context }) {
             askQuestion(question);
           }}
         >
-          <label className="visually-hidden" htmlFor="assistant-question">Ask FinSight Assistant</label>
+          <label className="visually-hidden" htmlFor="assistant-question">{translate(language, "assistant")}</label>
           <input
             id="assistant-question"
             type="text"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            placeholder="Ask about your finances..."
+            placeholder={translate(language, "askFinances")}
           />
           <button type="submit" aria-label="Send question" disabled={!question.trim()}>
             <Send size={17} />
           </button>
         </form>
-        <p className="assistant-disclaimer">Answers use only your saved app data and stay in this app. They are informational, not financial advice.</p>
+        <p className="assistant-disclaimer">{translate(language, "assistantDisclaimer")}</p>
       </div>
     </section>
   );
@@ -535,11 +650,15 @@ function ProfileView({
   pageMode,
   userInfo,
   greetingName,
+  language,
+  onLanguageChange,
   preferences,
+  appPreferences,
   profilePhoto,
   profilePhotoZoom,
   onProfilePhotoView,
   onPreferenceChange,
+  onAppPreferenceChange,
   onProfileUpdated,
   onProfilePhotoChange,
   onProfilePhotoZoomChange,
@@ -568,6 +687,8 @@ function ProfileView({
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState("");
+  const [dashboardColorDraft, setDashboardColorDraft] = useState(appPreferences.dashboardColor);
+  const [pendingDashboardColor, setPendingDashboardColor] = useState("");
   const [photoError, setPhotoError] = useState("");
   const [cameraError, setCameraError] = useState("");
   const [cameraStream, setCameraStream] = useState(null);
@@ -581,6 +702,10 @@ function ProfileView({
   const photoViewTimeoutRef = useRef(null);
   const profileNameInputRef = useRef(null);
   const cameraVideoRef = useRef(null);
+
+  useEffect(() => {
+    setDashboardColorDraft(appPreferences.dashboardColor);
+  }, [appPreferences.dashboardColor]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -867,22 +992,26 @@ function ProfileView({
     <section className="profile-page">
       <div className="transactions-page-header">
         <div>
-          <h2>{pageMode === "Profile" ? "Profile & settings" : pageMode}</h2>
+          <h2>
+            {pageMode === "Profile"
+              ? translate(language, "profileTitle")
+              : translate(language, PAGE_TRANSLATION_KEYS[pageMode] || pageMode)}
+          </h2>
           <p>
             {pageMode === "Login History"
-              ? "Review recent sign-ins and manage account access."
+              ? translate(language, "historyDescription")
               : pageMode === "Settings"
-                ? "Manage your password, alerts, and account preferences."
-                : "Update your details, sign-in security, and personal preferences."}
+                ? translate(language, "settingsDescription")
+                : translate(language, "profileDescription")}
           </p>
         </div>
         <div className="profile-header-actions">
           {pageMode === "Settings" && (
             <button className="profile-secondary-button" type="button" onClick={() => onNavigate("Profile")}>
-              <ArrowLeft size={15} /> Back to profile
+              <ArrowLeft size={15} /> {translate(language, "backToProfile")}
             </button>
           )}
-          <button className="profile-signout-button" type="button" onClick={onLogout}>Sign out</button>
+          <button className="profile-signout-button" type="button" onClick={onLogout}>{translate(language, "signOut")}</button>
         </div>
       </div>
       <div className={`profile-grid ${pageMode === "Login History" ? "profile-history-grid" : ""}`}>
@@ -1124,6 +1253,83 @@ function ProfileView({
         )}
         {pageMode === "Settings" && (
         <div className="profile-settings-column">
+          <section className="panel profile-card" aria-labelledby="appearance-settings-title">
+            <div className="profile-card-heading">
+              <div className="settings-card-icon"><Sparkles size={19} /></div>
+              <div>
+                <h3 id="appearance-settings-title">{translate(language, "appearance")}</h3>
+                <p>{translate(language, "appearanceDescription")}</p>
+              </div>
+            </div>
+            <label className="transaction-field" htmlFor="app-theme">
+              {translate(language, "theme")}
+              <select
+                id="app-theme"
+                value={appPreferences.theme}
+                onChange={(event) => onAppPreferenceChange("theme", event.target.value)}
+              >
+                <option value="dark">{translate(language, "dark")}</option>
+                <option value="light">{translate(language, "light")}</option>
+                <option value="gray">{translate(language, "gray")}</option>
+              </select>
+            </label>
+            <label className="transaction-field" htmlFor="app-language">
+              {translate(language, "language")}
+              <select id="app-language" value={language} onChange={(event) => onLanguageChange(event.target.value)}>
+                {LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.name}</option>)}
+              </select>
+              <small>{translate(language, "chooseLanguage")}</small>
+            </label>
+            <div className="dashboard-color-setting">
+              <strong>{translate(language, "dashboardColor")}</strong>
+              <span>{translate(language, "colorDescription")}</span>
+              <div className="dashboard-color-options" role="group" aria-label="Dashboard color">
+                {DASHBOARD_COLORS.map((color) => (
+                  <button
+                    className={`dashboard-color-swatch${dashboardColorDraft === color.value ? " selected" : ""}`}
+                    type="button"
+                    key={color.value}
+                    style={{ "--swatch-color": color.value }}
+                    aria-label={`Select ${color.name} dashboard color`}
+                    aria-pressed={dashboardColorDraft === color.value}
+                    onClick={() => setDashboardColorDraft(color.value)}
+                  />
+                ))}
+              </div>
+              <button
+                className="profile-secondary-button"
+                type="button"
+                disabled={dashboardColorDraft === appPreferences.dashboardColor}
+                onClick={() => setPendingDashboardColor(dashboardColorDraft)}
+              >
+                {translate(language, "applyColor")}
+              </button>
+              <button
+                className="profile-secondary-button"
+                type="button"
+                disabled={dashboardColorDraft === DASHBOARD_COLORS[0].value && appPreferences.dashboardColor === DASHBOARD_COLORS[0].value}
+                onClick={() => {
+                  setDashboardColorDraft(DASHBOARD_COLORS[0].value);
+                  onAppPreferenceChange("dashboardColor", DASHBOARD_COLORS[0].value);
+                }}
+              >
+                {translate(language, "resetColor")}
+              </button>
+            </div>
+            <label className="profile-setting">
+              <span className="profile-setting-copy">
+                <strong>{translate(language, "animations")}</strong>
+                <small>Turn dashboard and interface motion on or off.</small>
+              </span>
+              <input
+                type="checkbox"
+                aria-label="Animations"
+                checked={appPreferences.animationsEnabled}
+                onChange={(event) => onAppPreferenceChange("animationsEnabled", event.target.checked)}
+              />
+            </label>
+            <p className="profile-settings-note">Appearance preferences are saved in this browser for this signed-in account.</p>
+          </section>
           <section className="panel profile-card" aria-labelledby="profile-security-title">
             <div className="profile-card-heading">
               <div className="settings-card-icon"><Settings size={19} /></div>
@@ -1262,6 +1468,38 @@ function ProfileView({
         )}
       </div>
     </section>
+    {pendingDashboardColor && (
+      <div className="transaction-modal-backdrop">
+        <section
+          className="transaction-modal panel"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="confirm-dashboard-color-title"
+        >
+          <div className="transaction-modal-header">
+            <div>
+              <h2 id="confirm-dashboard-color-title">Apply this dashboard color?</h2>
+              <p>Your dashboard accent will change to the selected color.</p>
+            </div>
+          </div>
+          <div className="transaction-form-actions">
+            <button className="profile-secondary-button" type="button" onClick={() => setPendingDashboardColor("")}>
+              Cancel
+            </button>
+            <button
+              className="add-button"
+              type="button"
+              onClick={() => {
+                onAppPreferenceChange("dashboardColor", pendingDashboardColor);
+                setPendingDashboardColor("");
+              }}
+            >
+              Confirm color
+            </button>
+          </div>
+        </section>
+      </div>
+    )}
     {isDeleteConfirmOpen && (
       <div className="transaction-modal-backdrop">
         <section
@@ -1410,7 +1648,7 @@ function findPageForQuery(query) {
   return partialMatch?.name || "";
 }
 
-function LandingPage({ onLogin }) {
+function LandingPage({ onLogin, language, onLanguageChange }) {
   const [lampOn, setLampOn] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
   const loginTimer = useRef(null);
@@ -1424,6 +1662,10 @@ function LandingPage({ onLogin }) {
     loginTimer.current = window.setTimeout(onLogin, 500);
   };
 
+  const scrollToSection = (sectionId) => {
+    document.getElementById(sectionId)?.scrollIntoView?.({ behavior: "smooth" });
+  };
+
   return (
     <div className={`landing-page ${isPulling ? "is-transitioning" : ""}`}>
       <header className="landing-header">
@@ -1433,8 +1675,15 @@ function LandingPage({ onLogin }) {
         </a>
         <nav className="landing-nav" aria-label="Main navigation">
           <a href="#features">Features</a>
-          <a href="#preview">Your money, clearly</a>
+          <a href="#product-tour">{translate(language, "landingTour")}</a>
+          <a href="#about">{translate(language, "landingAbout")}</a>
         </nav>
+        <label className="landing-language-control">
+          <span>{translate(language, "language")}</span>
+          <select aria-label={translate(language, "language")} value={language} onChange={(event) => onLanguageChange(event.target.value)}>
+            {LANGUAGES.map((item) => <option value={item.code} key={item.code}>{item.name}</option>)}
+          </select>
+        </label>
         <span className="landing-header-hint">PULL THE LAMP THREAD TO BEGIN</span>
       </header>
 
@@ -1442,10 +1691,9 @@ function LandingPage({ onLogin }) {
         <section className="landing-hero" id="home">
           <div className="landing-hero-copy">
             <div className="landing-eyebrow"><span /> YOUR MONEY, IN A BETTER LIGHT</div>
-            <h1>Make every money move <span>with confidence.</span></h1>
+            <h1>{translate(language, "welcome")}</h1>
             <p className="landing-lede">
-              One calm, clear view of your finances. Track spending, build better habits,
-              and make your next goal feel within reach. Pull the lamp thread to sign in.
+              {translate(language, "landingDescription")}
             </p>
             <div className="landing-social-proof">
               <div className="landing-proof-avatars" aria-hidden="true">
@@ -1473,25 +1721,98 @@ function LandingPage({ onLogin }) {
         <section className="landing-features" id="features">
           <div className="landing-section-heading">
             <span>MADE FOR YOUR EVERYDAY</span>
-            <h2>Feel good about where your money goes.</h2>
+            <h2>{translate(language, "landingFeatures")}</h2>
           </div>
           <div className="landing-feature-grid">
             <article className="landing-feature">
               <span className="landing-feature-icon feature-purple"><ChartNoAxesCombined size={21} /></span>
-              <h3>See the whole picture</h3>
-              <p>Bring your balance, income, and spending together in one easy-to-follow view.</p>
+              <h3>{translate(language, "feature1Title")}</h3>
+              <p>{translate(language, "feature1Description")}</p>
             </article>
             <article className="landing-feature">
               <span className="landing-feature-icon feature-green"><Wallet size={21} /></span>
-              <h3>Make progress feel simple</h3>
-              <p>Keep your goals close and see how everyday choices move you forward.</p>
+              <h3>{translate(language, "feature2Title")}</h3>
+              <p>{translate(language, "feature2Description")}</p>
             </article>
             <article className="landing-feature">
               <span className="landing-feature-icon feature-orange"><Sparkles size={21} /></span>
-              <h3>Find your next step</h3>
-              <p>Get thoughtful insights that help you understand your habits and plan ahead.</p>
+              <h3>{translate(language, "feature3Title")}</h3>
+              <p>{translate(language, "feature3Description")}</p>
             </article>
           </div>
+        </section>
+
+        <section className="landing-product-tour" id="product-tour">
+          <div className="landing-section-heading">
+            <span>A CLEARER VIEW OF YOUR MONEY</span>
+            <h2>{translate(language, "landingTour")}</h2>
+            <p>{translate(language, "landingTourDescription")}</p>
+          </div>
+          <div className="landing-gallery-grid">
+            <article className="landing-gallery-card">
+              <div className="gallery-balance-preview">
+                <span className="gallery-preview-kicker">MONTHLY BALANCE RATIO · SAMPLE</span>
+                <strong>₹48,250</strong>
+                <div className="gallery-ratio-track"><span /></div>
+                <div className="gallery-ratio-labels"><span>Income ₹62,000</span><span>78% retained</span></div>
+              </div>
+              <h3>{translate(language, "monthlyBalance")}</h3>
+              <p>{translate(language, "monthlyBalanceDescription")}</p>
+            </article>
+            <article className="landing-gallery-card">
+              <div className="gallery-cashflow-preview">
+                <span className="gallery-preview-kicker">CASH FLOW · SAMPLE</span>
+                <div className="gallery-chart-bars" aria-hidden="true">
+                  {[48, 70, 54, 84, 62, 92, 73].map((height, index) => (
+                    <span key={index} style={{ "--bar-height": `${height}%` }} />
+                  ))}
+                </div>
+                <div className="gallery-ratio-labels"><span>Income</span><span>Expenses</span></div>
+              </div>
+              <h3>{translate(language, "incomeExpenses")}</h3>
+              <p>{translate(language, "incomeExpensesDescription")}</p>
+            </article>
+            <article className="landing-gallery-card">
+              <div className="gallery-category-preview">
+                <span className="gallery-preview-kicker">SPENDING MIX · SAMPLE</span>
+                <div className="gallery-donut" aria-label="Illustrative spending category chart">
+                  <span>₹18,400</span>
+                </div>
+                <div className="gallery-category-labels"><span>Home</span><span>Food</span><span>Travel</span></div>
+              </div>
+              <h3>{translate(language, "spendingCategories")}</h3>
+              <p>{translate(language, "categoriesDescription")}</p>
+            </article>
+            <article className="landing-gallery-card">
+              <div className="gallery-transactions-preview">
+                <span className="gallery-preview-kicker">RECENT ACTIVITY · SAMPLE</span>
+                <div className="gallery-transaction-row"><i className="gallery-income-dot" /><span>Monthly income</span><strong>+₹32,000</strong></div>
+                <div className="gallery-transaction-row"><i className="gallery-expense-dot" /><span>Everyday expense</span><strong>−₹1,250</strong></div>
+                <div className="gallery-transaction-row"><i className="gallery-high-dot" /><span>Large purchase</span><strong>−₹12,400</strong></div>
+              </div>
+              <h3>{translate(language, "transactionHistory")}</h3>
+              <p>{translate(language, "transactionsDescription")}</p>
+            </article>
+            <article className="landing-gallery-card">
+              <div className="gallery-budget-preview">
+                <span className="gallery-preview-kicker">BUDGET PROGRESS · SAMPLE</span>
+                <div><span>Food</span><strong>72%</strong><i><b style={{ width: "72%" }} /></i></div>
+                <div><span>Travel</span><strong>44%</strong><i><b style={{ width: "44%" }} /></i></div>
+                <div><span>Home</span><strong>88%</strong><i><b style={{ width: "88%" }} /></i></div>
+              </div>
+              <h3>{translate(language, "budgetsGoals")}</h3>
+              <p>{translate(language, "budgetsDescription")}</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="landing-about" id="about">
+          <span>ABOUT FINSIGHT</span>
+          <h2>{translate(language, "landingAbout")}</h2>
+          <p>{translate(language, "aboutDescription")}</p>
+          <button className="landing-tour-cta" type="button" onClick={() => scrollToSection("product-tour")}>
+            Explore the previews <ArrowUpRight size={16} />
+          </button>
         </section>
       </main>
 
@@ -1537,6 +1858,194 @@ function SessionErrorPage({ message, onRetry, onReturnToLanding }) {
   );
 }
 
+function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
+  const [formData, setFormData] = useState({
+    displayName: userInfo.name || "",
+    email: userInfo.email || "",
+    age: "",
+    gender: "",
+    mobileNumber: userInfo.phone || "",
+    address: "",
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    setError("");
+
+    getApiJson("/api/auth/profile")
+      .then((profile) => {
+        if (
+          !profile
+          || typeof profile !== "object"
+          || Array.isArray(profile)
+          || !Object.prototype.hasOwnProperty.call(profile, "age")
+          || !Object.prototype.hasOwnProperty.call(profile, "gender")
+        ) {
+          throw new Error("The server returned invalid profile details.");
+        }
+        if (profile.age !== null && profile.age !== undefined && String(profile.gender || "").trim()) {
+          onComplete(profile);
+          return;
+        }
+        if (!active) return;
+        setFormData({
+          displayName: profile.displayName || userInfo.name || "",
+          email: profile.email || userInfo.email || "",
+          age: profile.age === null || profile.age === undefined ? "" : String(profile.age),
+          gender: profile.gender || "",
+          mobileNumber: profile.mobileNumber || userInfo.phone || "",
+          address: profile.address || "",
+        });
+        setProfileLoaded(true);
+        setIsLoading(false);
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        setError(loadError.message);
+        setIsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [loadAttempt, onComplete, userInfo]);
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setIsSaving(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          displayName: formData.displayName.trim(),
+          age: Number(formData.age),
+          gender: formData.gender.trim(),
+          mobileNumber: formData.mobileNumber.trim(),
+          address: formData.address.trim(),
+        }),
+      });
+      const profile = await parseApiResponse(response);
+      if (
+        !profile
+        || typeof profile !== "object"
+        || Array.isArray(profile)
+        || profile.age === null
+        || profile.age === undefined
+        || !String(profile.gender || "").trim()
+      ) {
+        throw new Error("The server returned invalid profile details.");
+      }
+      onComplete(profile);
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <main className="profile-setup-page">
+      <section className="profile-setup-card panel" aria-labelledby="profile-setup-title">
+        <div className="profile-setup-heading">
+          <div className="profile-setup-icon"><UserRound size={22} /></div>
+          <div>
+            <p className="profile-setup-eyebrow">FINANCE PROFILE</p>
+            <h1 id="profile-setup-title">Complete your profile</h1>
+            <p>Tell us a little about yourself before opening your dashboard.</p>
+          </div>
+        </div>
+        {isLoading ? (
+          <p className="profile-setup-status" role="status">Loading your profile details...</p>
+        ) : !profileLoaded ? (
+          <div className="profile-setup-error-block">
+            <p className="profile-form-error" role="alert">{error}</p>
+            <button type="button" className="profile-secondary-button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <form className="profile-setup-form" onSubmit={handleSubmit}>
+            <label className="profile-setup-field">
+              <span>Name</span>
+              <input name="displayName" type="text" autoComplete="name" value={formData.displayName} onChange={handleChange} required maxLength={80} />
+            </label>
+            <div className="profile-setup-field">
+              <label htmlFor="profile-setup-email">Email</label>
+              <input
+                id="profile-setup-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                value={formData.email}
+                placeholder="No email address on this account"
+                readOnly
+              />
+              <small>Your sign-in email is managed by your account.</small>
+            </div>
+            <div className="profile-setup-row">
+              <label className="profile-setup-field">
+                <span>Age</span>
+                <input name="age" type="number" min="1" max="120" value={formData.age} onChange={handleChange} required />
+              </label>
+              <label className="profile-setup-field">
+                <span>Gender</span>
+                <input
+                  name="gender"
+                  type="text"
+                  list="profile-gender-options"
+                  value={formData.gender}
+                  onChange={handleChange}
+                  required
+                  maxLength={40}
+                />
+                <datalist id="profile-gender-options">
+                  <option value="Female" />
+                  <option value="Male" />
+                  <option value="Non-binary" />
+                  <option value="Prefer not to say" />
+                  <option value="Other" />
+                </datalist>
+              </label>
+            </div>
+            <label className="profile-setup-field">
+              <span>Mobile number <small>(optional)</small></span>
+              <input name="mobileNumber" type="tel" autoComplete="tel" value={formData.mobileNumber} onChange={handleChange} maxLength={30} />
+            </label>
+            <label className="profile-setup-field">
+              <span>Address <small>(optional)</small></span>
+              <textarea name="address" autoComplete="street-address" value={formData.address} onChange={handleChange} maxLength={500} rows={3} />
+            </label>
+            {error && <p className="profile-form-error" role="alert">{error}</p>}
+            <button className="profile-setup-submit" type="submit" disabled={isSaving}>
+              {isSaving ? "Saving..." : "Submit"}
+            </button>
+          </form>
+        )}
+        {logoutError && <p className="profile-form-error" role="alert">{logoutError}</p>}
+        {!isLoading && (
+          <button className="profile-setup-signout" type="button" onClick={onSignOut} disabled={isSaving}>
+            Sign out
+          </button>
+        )}
+      </section>
+    </main>
+  );
+}
+
 function TransactionList({ transactions }) {
   if (transactions.length === 0) {
     return <p className="transaction-empty">No transactions yet.</p>;
@@ -1548,9 +2057,17 @@ function TransactionList({ transactions }) {
     year: "numeric",
   });
 
-  const accentClasses = ["transaction-purple", "transaction-blue", "transaction-pink", "transaction-cyan", "transaction-green"];
-  return transactions.map((transaction, index) => (
-    <div className={`transaction-row ${accentClasses[index % accentClasses.length]}`} key={transaction.id}>
+  return transactions.map((transaction) => {
+    const isHighExpense = transaction.type === "expense" && Number(transaction.amount) >= HIGH_EXPENSE_AMOUNT;
+    const transactionColor = transaction.type === "income"
+      ? "transaction-green"
+      : isHighExpense ? "transaction-pink" : "transaction-blue";
+    return (
+    <div
+      className={`transaction-row ${transactionColor}`}
+      key={transaction.id}
+      title={isHighExpense ? "High expense · ₹10,000 or more" : undefined}
+    >
       <div className="transaction-icon">
         <Wallet size={19} />
       </div>
@@ -1561,12 +2078,13 @@ function TransactionList({ transactions }) {
       <span className="transaction-date">
         {dateFormatter.format(new Date(`${transaction.transactionDate}T00:00:00`))}
       </span>
-      <strong className={`transaction-amount ${transaction.type}`}>
+      <strong className={`transaction-amount ${transaction.type}${isHighExpense ? " expense-high" : ""}`}>
         {transaction.type === "expense" ? "−" : "+"}
         {CURRENCY_FORMATTER.format(Number(transaction.amount))}
       </strong>
     </div>
-  ));
+    );
+  });
 }
 
 function TransactionForm({ onClose, onCreated }) {
@@ -1752,7 +2270,7 @@ function BudgetList({ budgets }) {
   );
 }
 
-function downloadBudgetPdf(budgets, periodType) {
+async function downloadBudgetPdf(budgets, periodType) {
   const entries = budgets
     .filter((budget) => (budget.periodType || "MONTHLY").toUpperCase() === periodType)
     .sort((left, right) => (
@@ -1766,6 +2284,7 @@ function downloadBudgetPdf(budgets, periodType) {
     MONTHLY: "Monthly",
     BIMONTHLY: "Every 2 Months",
   };
+  const { jsPDF } = await import("jspdf");
   const document = new jsPDF();
   document.setFont("helvetica", "bold");
   document.setFontSize(18);
@@ -1815,7 +2334,7 @@ function getTransactionReportRange(periodType, selectedDate) {
   };
 }
 
-function downloadTransactionPdf(transactions, periodType, selectedDate) {
+async function downloadTransactionPdf(transactions, periodType, selectedDate) {
   const range = getTransactionReportRange(periodType, selectedDate);
   const entries = transactions
     .filter((transaction) => transaction.transactionDate >= range.start && transaction.transactionDate <= range.end)
@@ -1841,6 +2360,7 @@ function downloadTransactionPdf(transactions, periodType, selectedDate) {
     .filter((transaction) => transaction.type === "expense")
     .reduce((total, transaction) => total + Number(transaction.amount), 0);
 
+  const { jsPDF } = await import("jspdf");
   const document = new jsPDF();
   document.setFont("helvetica", "bold");
   document.setFontSize(18);
@@ -1930,36 +2450,18 @@ function AnalyticsView({ transactions, error }) {
                 <span><i className="legend-expense" /> Expenses</span>
               </div>
               <div className="area-chart analytics-area-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={analytics.monthly}>
-                    <defs>
-                      <linearGradient id="analyticsIncomeGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#9b7bff" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#9b7bff" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="analyticsExpenseGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#38d9b2" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#38d9b2" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#292d40" strokeDasharray="4 5" vertical={false} />
-                    <XAxis dataKey="label" stroke="#777d94" tickLine={false} axisLine={false} />
-                    <YAxis
-                      stroke="#777d94"
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={compactCurrency}
-                      width={55}
-                    />
-                    <Tooltip
-                      contentStyle={{ background: "#202438", border: "1px solid #363b54", borderRadius: 8 }}
-                      formatter={(value, name) => [CURRENCY_FORMATTER.format(value), name === "income" ? "Income" : "Expenses"]}
-                      labelFormatter={(label) => `Month: ${label}`}
-                    />
-                    <Area type="monotone" dataKey="income" name="income" stroke="#a78bfa" fill="url(#analyticsIncomeGradient)" strokeWidth={2} />
-                    <Area type="monotone" dataKey="expenses" name="expenses" stroke="#38d9b2" fill="url(#analyticsExpenseGradient)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <React.Suspense fallback={<div className="chart-loading-placeholder" aria-hidden="true" />}>
+                  <CashFlowChart
+                    data={analytics.monthly}
+                    gradientId="analytics"
+                    currencyFormatter={(value) => CURRENCY_FORMATTER.format(value)}
+                    yAxisFormatter={compactCurrency}
+                    yAxisWidth={55}
+                    tooltipContentStyle={{ background: "#202438", border: "1px solid #363b54", borderRadius: 8 }}
+                    tooltipLabelFormatter={(label) => `Month: ${label}`}
+                    strokeWidth={2}
+                  />
+                </React.Suspense>
               </div>
             </>
           ) : (
@@ -1977,27 +2479,16 @@ function AnalyticsView({ transactions, error }) {
           {hasExpenses ? (
             <>
               <div className="donut-container analytics-donut">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={analytics.categories}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={56}
-                      outerRadius={78}
-                      paddingAngle={3}
-                      stroke="none"
-                    >
-                      {analytics.categories.map((category) => (
-                        <Cell key={category.name} fill={category.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: "#202438", border: "1px solid #363b54", borderRadius: 8 }}
-                      formatter={(value) => CURRENCY_FORMATTER.format(value)}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <React.Suspense fallback={<div className="chart-loading-placeholder" aria-hidden="true" />}>
+                  <SpendingCategoryChart
+                    data={analytics.categories}
+                    innerRadius={56}
+                    outerRadius={78}
+                    paddingAngle={3}
+                    tooltipContentStyle={{ background: "#202438", border: "1px solid #363b54", borderRadius: 8 }}
+                    currencyFormatter={(value) => CURRENCY_FORMATTER.format(value)}
+                  />
+                </React.Suspense>
                 <div className="donut-center">
                   <span>Total spent</span>
                   <strong>{CURRENCY_FORMATTER.format(analytics.expenses)}</strong>
@@ -2078,7 +2569,7 @@ function AccountForm({ onClose, onCreated }) {
             </select>
           </label>
           <label className="transaction-field" htmlFor="account-balance">
-            Current balance (INR)
+            Starting balance (INR)
             <input id="account-balance" type="number" min="0" max="9999999999.99" step="0.01" value={balance} onChange={(event) => setBalance(event.target.value)} required />
           </label>
           {error && <p className="transaction-form-error" role="alert">{error}</p>}
@@ -2185,6 +2676,10 @@ function BudgetForm({ onClose, onCreated }) {
 }
 
 function App() {
+  const [language, setLanguage] = useState(() => {
+    const savedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    return LANGUAGES.some((item) => item.code === savedLanguage) ? savedLanguage : "en";
+  });
   const [currentPage, setCurrentPage] = useState(() =>
     new URLSearchParams(window.location.search).get("oauth") === "success"
       ? "session-check"
@@ -2193,16 +2688,20 @@ function App() {
         : window.localStorage.getItem(AUTH_STORAGE_KEY) === "true" ? "session-check" : "landing"
   );
   const [activePage, setActivePage] = useState("Dashboard");
-  const [pageHistory, setPageHistory] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const [logoutError, setLogoutError] = useState("");
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [userInfo, setUserInfo] = useState({ email: "", phone: "", name: "" });
   const [searchQuery, setSearchQuery] = useState("");
   const [searchError, setSearchError] = useState("");
   const [transactions, setTransactions] = useState([]);
   const [transactionError, setTransactionError] = useState("");
   const [isTransactionFormOpen, setIsTransactionFormOpen] = useState(false);
+  const [isResetTransactionsConfirmOpen, setIsResetTransactionsConfirmOpen] = useState(false);
+  const [isResettingTransactions, setIsResettingTransactions] = useState(false);
+  const [resetTransactionsError, setResetTransactionsError] = useState("");
   const [accounts, setAccounts] = useState([]);
   const [accountError, setAccountError] = useState("");
   const [isAccountFormOpen, setIsAccountFormOpen] = useState(false);
@@ -2217,6 +2716,7 @@ function App() {
   const [transactionPdfDate, setTransactionPdfDate] = useState(dateKey(new Date()));
   const [transactionPdfError, setTransactionPdfError] = useState("");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [selectedNotificationId, setSelectedNotificationId] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [notificationStoreOwner, setNotificationStoreOwner] = useState("");
   const [notificationStorageError, setNotificationStorageError] = useState("");
@@ -2227,15 +2727,28 @@ function App() {
   });
   const preferenceStorageKey = `finsight-alerts:${(userInfo.email || userInfo.phone || "personal").trim().toLocaleLowerCase()}`;
   const accountStorageKey = (userInfo.email || userInfo.phone || "personal").trim().toLocaleLowerCase();
+  const appPreferenceStorageKey = `finsight-appearance:${accountStorageKey}`;
   const notificationStorageKey = `finsight-notifications:${accountStorageKey}`;
   const profilePhotoStorageKey = `finsight-profile-photo:${accountStorageKey}`;
   const profilePhotoZoomStorageKey = `finsight-profile-photo-zoom:${accountStorageKey}`;
   const [profilePhoto, setProfilePhoto] = useState("");
   const [profilePhotoZoom, setProfilePhotoZoom] = useState(1);
   const [isProfilePhotoOpen, setIsProfilePhotoOpen] = useState(false);
+  const [appPreferences, setAppPreferences] = useState({
+    theme: "dark",
+    dashboardColor: DASHBOARD_COLORS[0].value,
+    animationsEnabled: true,
+  });
   const notificationAudioRef = useRef(null);
+  const loginWelcomePendingRef = useRef(false);
+  const loginIsNewAccountRef = useRef(false);
   const previousAlertIdsRef = useRef(new Set());
   const previousNotificationAlertIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    document.documentElement.lang = language;
+  }, [language]);
 
   useEffect(() => {
     if (!isProfilePhotoOpen) return undefined;
@@ -2253,6 +2766,19 @@ function App() {
       notificationSound: window.localStorage.getItem(`${preferenceStorageKey}:notificationSound`) === "true",
     });
   }, [preferenceStorageKey]);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem(`${appPreferenceStorageKey}:theme`);
+    const savedDashboardColor = window.localStorage.getItem(`${appPreferenceStorageKey}:dashboardColor`);
+    const savedAnimations = window.localStorage.getItem(`${appPreferenceStorageKey}:animationsEnabled`);
+    setAppPreferences({
+      theme: APP_THEMES.includes(savedTheme) ? savedTheme : "dark",
+      dashboardColor: DASHBOARD_COLORS.some((color) => color.value === savedDashboardColor)
+        ? savedDashboardColor
+        : DASHBOARD_COLORS[0].value,
+      animationsEnabled: savedAnimations !== "false",
+    });
+  }, [appPreferenceStorageKey]);
 
   useEffect(() => {
     try {
@@ -2278,6 +2804,30 @@ function App() {
   }, [notificationStorageKey, notificationStoreOwner, notifications]);
 
   useEffect(() => {
+    if (
+      currentPage !== "dashboard"
+      || notificationStoreOwner !== notificationStorageKey
+      || !loginWelcomePendingRef.current
+    ) {
+      return;
+    }
+    loginWelcomePendingRef.current = false;
+    const createdAt = Date.now();
+    const isNewAccount = loginIsNewAccountRef.current;
+    loginIsNewAccountRef.current = false;
+    setNotifications((current) => [{
+      id: `login-success-${createdAt}`,
+      sourceId: "login-success",
+      title: translate(language, isNewAccount ? "accountCreatedTitle" : "loginTitle"),
+      message: translate(language, isNewAccount ? "accountCreatedMessage" : "loginMessage"),
+      tone: "positive",
+      createdAt: new Date(createdAt).toISOString(),
+      read: false,
+      dismissed: false,
+    }, ...current].slice(0, 100));
+  }, [currentPage, language, notificationStorageKey, notificationStoreOwner]);
+
+  useEffect(() => {
     setProfilePhoto(window.localStorage.getItem(profilePhotoStorageKey) || "");
   }, [profilePhotoStorageKey]);
 
@@ -2292,7 +2842,8 @@ function App() {
     const checkSession = async () => {
       try {
         const url = new URL(window.location.href);
-        if (url.searchParams.has("oauth")) {
+        const isOAuthCallback = url.searchParams.has("oauth");
+        if (isOAuthCallback) {
           url.searchParams.delete("oauth");
           window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
         }
@@ -2300,13 +2851,14 @@ function App() {
         const result = await parseApiResponse(response);
         if (!active) return;
         if (result.authenticated) {
+          if (isOAuthCallback) loginWelcomePendingRef.current = true;
           window.localStorage.setItem(AUTH_STORAGE_KEY, "true");
           setUserInfo({
             email: result.email || "",
             phone: result.phone || "",
             name: result.displayName || "",
           });
-          setCurrentPage("dashboard");
+          setCurrentPage("profile-setup");
         } else {
           window.localStorage.removeItem(AUTH_STORAGE_KEY);
           setUserInfo({ email: "", phone: "", name: "" });
@@ -2352,20 +2904,16 @@ function App() {
     };
   }, [currentPage]);
 
-  useEffect(() => {
-    if (currentPage !== "loading") return undefined;
-    const loadingTimer = window.setTimeout(() => setCurrentPage("dashboard"), 1600);
-    return () => window.clearTimeout(loadingTimer);
-  }, [currentPage]);
-
   const handleLogin = (user = {}) => {
+    loginWelcomePendingRef.current = true;
+    loginIsNewAccountRef.current = user.isNewAccount === true;
     window.localStorage.setItem(AUTH_STORAGE_KEY, "true");
     setUserInfo({
       email: user.email || "",
       phone: user.phone || "",
       name: user.name || "",
     });
-    setCurrentPage("loading");
+    setCurrentPage("profile-setup");
   };
 
   const handleTransactionCreated = (transaction) => {
@@ -2373,6 +2921,20 @@ function App() {
     setTransactions((current) => [transaction, ...current].sort((left, right) => (
       right.transactionDate.localeCompare(left.transactionDate) || right.id - left.id
     )));
+    const amount = Number(transaction.amount);
+    const netChange = transaction.type === "income" ? amount : -amount;
+    const remainingBalance = currentNetCashBalance + (transaction.transactionDate <= todayDate ? netChange : 0);
+    const createdAt = Date.now();
+    setNotifications((current) => [{
+      id: `transaction-${transaction.id}`,
+      sourceId: `transaction-${transaction.id}`,
+      title: `${transaction.type === "income" ? "Income" : "Expense"} recorded`,
+      message: `${transaction.description}: ${transaction.type === "income" ? "+" : "−"}${CURRENCY_FORMATTER.format(amount)} for ${transaction.category}. Remaining net cash balance: ${CURRENCY_FORMATTER.format(remainingBalance)}.`,
+      tone: transaction.type === "income" ? "positive" : "neutral",
+      createdAt: new Date(createdAt).toISOString(),
+      read: false,
+      dismissed: false,
+    }, ...current].slice(0, 100));
   };
 
   const handleAccountCreated = (account) => {
@@ -2388,10 +2950,10 @@ function App() {
     )));
   };
 
-  const handleBudgetPdfDownload = () => {
+  const handleBudgetPdfDownload = async () => {
     setBudgetPdfError("");
     try {
-      if (!downloadBudgetPdf(budgets, budgetPdfPeriod)) {
+      if (!await downloadBudgetPdf(budgets, budgetPdfPeriod)) {
         setBudgetPdfError(`No ${budgetPdfPeriod === "BIMONTHLY" ? "two-month" : budgetPdfPeriod.toLowerCase()} budgets to download yet.`);
       }
     } catch (error) {
@@ -2399,10 +2961,10 @@ function App() {
     }
   };
 
-  const handleTransactionPdfDownload = () => {
+  const handleTransactionPdfDownload = async () => {
     setTransactionPdfError("");
     try {
-      if (!downloadTransactionPdf(transactions, transactionPdfPeriod, transactionPdfDate)) {
+      if (!await downloadTransactionPdf(transactions, transactionPdfPeriod, transactionPdfDate)) {
         setTransactionPdfError("No transactions found for the selected period.");
       }
     } catch (error) {
@@ -2413,6 +2975,11 @@ function App() {
   const handleAlertPreferenceChange = (preference, enabled) => {
     window.localStorage.setItem(`${preferenceStorageKey}:${preference}`, String(enabled));
     setAlertPreferences((current) => ({ ...current, [preference]: enabled }));
+  };
+
+  const handleAppPreferenceChange = (preference, value) => {
+    window.localStorage.setItem(`${appPreferenceStorageKey}:${preference}`, String(value));
+    setAppPreferences((current) => ({ ...current, [preference]: value }));
   };
 
   const handleProfilePhotoChange = (photo) => {
@@ -2443,26 +3010,18 @@ function App() {
     }));
   }, []);
 
+  const handleProfileSetupComplete = useCallback((profile) => {
+    handleProfileUpdated(profile);
+    setCurrentPage("dashboard");
+  }, [handleProfileUpdated]);
+
   const handleProfilePhotoZoomChange = (zoom) => {
     window.localStorage.setItem(profilePhotoZoomStorageKey, String(zoom));
     setProfilePhotoZoom(zoom);
   };
 
   const navigateToPage = (page) => {
-    if (page !== activePage) {
-      setPageHistory((current) => [...current, activePage]);
-    }
     setActivePage(page);
-    setMenuOpen(false);
-    setIsNotificationsOpen(false);
-    setSearchError("");
-  };
-
-  const handleGoBack = () => {
-    const previousPage = pageHistory[pageHistory.length - 1];
-    if (!previousPage) return;
-    setPageHistory((current) => current.slice(0, -1));
-    setActivePage(previousPage);
     setMenuOpen(false);
     setIsNotificationsOpen(false);
     setSearchError("");
@@ -2479,29 +3038,59 @@ function App() {
     setSearchQuery("");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setLogoutError("");
-    fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST", credentials: "include" })
-      .then(parseApiResponse)
-      .then(() => {
-        window.localStorage.removeItem(AUTH_STORAGE_KEY);
-        setTransactions([]);
-        setTransactionError("");
-        setIsTransactionFormOpen(false);
-        setUserInfo({ email: "", phone: "", name: "" });
-        setAccounts([]);
-        setAccountError("");
-        setIsAccountFormOpen(false);
-        setBudgets([]);
-        setBudgetError("");
-        setIsBudgetFormOpen(false);
-        setIsNotificationsOpen(false);
-        setActivePage("Dashboard");
-        setPageHistory([]);
-        setMenuOpen(false);
-        setCurrentPage("landing");
-      })
-      .catch((error) => setLogoutError(error.message));
+    setIsLoggingOut(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/logout`, { method: "POST", credentials: "include" });
+      await parseApiResponse(response);
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      setTransactions([]);
+      setTransactionError("");
+      setIsTransactionFormOpen(false);
+      setUserInfo({ email: "", phone: "", name: "" });
+      setAccounts([]);
+      setAccountError("");
+      setIsAccountFormOpen(false);
+      setBudgets([]);
+      setBudgetError("");
+      setIsBudgetFormOpen(false);
+      setIsNotificationsOpen(false);
+      setIsLogoutConfirmOpen(false);
+      setActivePage("Dashboard");
+      setMenuOpen(false);
+      setCurrentPage("landing");
+    } catch (error) {
+      setLogoutError(error.message);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
+  const handleResetTransactions = async () => {
+    setResetTransactionsError("");
+    setIsResettingTransactions(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/transactions`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const result = await parseApiResponse(response);
+      if (!result.deleted) throw new Error("The transactions could not be reset.");
+      setTransactions([]);
+      setTransactionError("");
+      setNotifications((current) => current.filter((notification) => (
+        !notification.sourceId.startsWith("transaction-")
+        && notification.sourceId !== "high-expenses"
+        && notification.sourceId !== "low-cash-flow"
+        && !notification.sourceId.startsWith("budget-")
+      )));
+      setIsResetTransactionsConfirmOpen(false);
+    } catch (error) {
+      setResetTransactionsError(error.message);
+    } finally {
+      setIsResettingTransactions(false);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -2518,6 +3107,9 @@ function App() {
         `${preferenceStorageKey}:highExpenseAlerts`,
         `${preferenceStorageKey}:lowCashFlowAlerts`,
         `${preferenceStorageKey}:notificationSound`,
+        `${appPreferenceStorageKey}:theme`,
+        `${appPreferenceStorageKey}:dashboardColor`,
+        `${appPreferenceStorageKey}:animationsEnabled`,
         profilePhotoStorageKey,
         profilePhotoZoomStorageKey,
         notificationStorageKey,
@@ -2534,7 +3126,6 @@ function App() {
     setUserInfo({ email: "", phone: "", name: "" });
     setIsNotificationsOpen(false);
     setActivePage("Dashboard");
-    setPageHistory([]);
     setCurrentPage("landing");
     if (browserDataCleanupFailed) {
       setLogoutError("Your account was deleted, but some browser-only preferences could not be cleared.");
@@ -2542,23 +3133,33 @@ function App() {
   };
 
   const dashboardAnalytics = getAnalyticsData(transactions);
-  const currentMonthSummary = getCurrentMonthSummary(transactions, budgets);
-  const financialAlerts = getFinancialAlerts(currentMonthSummary, alertPreferences);
-  const activeAlertIds = new Set(financialAlerts.map((alert) => alert.id));
+  const currentMonthSummary = useMemo(
+    () => getCurrentMonthSummary(transactions, budgets),
+    [transactions, budgets]
+  );
+  const financialAlerts = useMemo(
+    () => getFinancialAlerts(currentMonthSummary, alertPreferences),
+    [currentMonthSummary, alertPreferences]
+  );
+  const activeAlertIds = useMemo(
+    () => new Set(financialAlerts.map((alert) => alert.id)),
+    [financialAlerts]
+  );
   const activeAlertSignature = financialAlerts.map((alert) => alert.id).join("|");
   const currentNotifications = notificationStoreOwner === notificationStorageKey ? notifications : [];
   const visibleNotifications = currentNotifications.filter((notification) => !notification.dismissed);
   const unreadNotificationCount = visibleNotifications.filter((notification) => !notification.read).length;
+  const selectedNotification = visibleNotifications.find((notification) => notification.id === selectedNotificationId);
   const toggleNotifications = () => {
     const opening = !isNotificationsOpen;
-    if (opening && notificationStoreOwner === notificationStorageKey) {
-      setNotifications((current) => current.map((notification) => (
-        notification.dismissed || notification.read
-          ? notification
-          : { ...notification, read: true }
-      )));
-    }
+    if (opening) setSelectedNotificationId("");
     setIsNotificationsOpen(opening);
+  };
+  const openNotification = (notificationId) => {
+    setSelectedNotificationId(notificationId);
+    setNotifications((current) => current.map((notification) => (
+      notification.id === notificationId ? { ...notification, read: true } : notification
+    )));
   };
   const deleteNotification = (notificationId) => {
     setNotifications((current) => current.flatMap((notification) => {
@@ -2590,12 +3191,13 @@ function App() {
     .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
   const todayDate = dateKey(new Date());
   const balanceCutoff = dashboardPeriodRange.end < todayDate ? dashboardPeriodRange.end : todayDate;
-  const activityAfterPeriod = transactions
-    .filter((transaction) => transaction.transactionDate > balanceCutoff && transaction.transactionDate <= todayDate)
+  const netActivityThrough = (cutoff) => transactions
+    .filter((transaction) => transaction.transactionDate <= cutoff)
     .reduce((net, transaction) => (
       net + (transaction.type === "income" ? Number(transaction.amount || 0) : -Number(transaction.amount || 0))
     ), 0);
-  const periodBalance = accountBalance - activityAfterPeriod;
+  const currentNetCashBalance = accountBalance + netActivityThrough(todayDate);
+  const periodBalance = accountBalance + netActivityThrough(balanceCutoff);
   const dashboardPeriodName = {
     WEEKLY: "Weekly",
     MONTHLY: "Monthly",
@@ -2615,11 +3217,11 @@ function App() {
     {
       title: `${dashboardPeriodName} Total Balance`,
       value: CURRENCY_FORMATTER.format(periodBalance),
-      description: accounts.length === 0
-        ? "Add an account to see your balance"
+      description: accounts.length === 0 && transactions.length === 0
+        ? "Add an account to set your starting balance"
         : dashboardPeriodRange.end < todayDate
           ? `Estimated period-end · ${dashboardPeriodRange.label}`
-          : `Current balance · ${dashboardPeriodRange.label}`,
+          : `Balance after saved activity · ${dashboardPeriodRange.label}`,
       icon: Wallet,
       className: "balance-card",
     },
@@ -2654,7 +3256,7 @@ function App() {
       ));
       return retained.length === current.length ? current : retained;
     });
-  }, [activeAlertSignature, notificationStorageKey, notificationStoreOwner]);
+  }, [activeAlertIds, activeAlertSignature, notificationStorageKey, notificationStoreOwner]);
 
   useEffect(() => {
     if (currentPage !== "dashboard" || notificationStoreOwner !== notificationStorageKey) return;
@@ -2678,7 +3280,7 @@ function App() {
       })),
       ...current,
     ].slice(0, 100));
-  }, [activeAlertSignature, currentPage, notificationStorageKey, notificationStoreOwner]);
+  }, [activeAlertIds, activeAlertSignature, currentPage, financialAlerts, notificationStorageKey, notificationStoreOwner]);
 
   useEffect(() => {
     const alertIds = new Set(financialAlerts.map((alert) => alert.id));
@@ -2712,7 +3314,13 @@ function App() {
   }, [alertPreferences.notificationSound, currentPage, financialAlerts]);
 
   if (currentPage === "landing") {
-    return <LandingPage onLogin={() => setCurrentPage("login")} />;
+    return (
+      <LandingPage
+        language={language}
+        onLanguageChange={setLanguage}
+        onLogin={() => setCurrentPage("login")}
+      />
+    );
   }
 
   if (currentPage === "login") {
@@ -2724,8 +3332,28 @@ function App() {
     );
   }
 
-  if (currentPage === "loading") {
-    return <LoadingPage onBackToLogin={() => setCurrentPage("login")} />;
+  const assistantAccent = getComplementaryColor(appPreferences.dashboardColor);
+  const appColorVariables = {
+    "--dashboard-accent": appPreferences.dashboardColor,
+    "--dashboard-foreground": getContrastingTextColor(appPreferences.dashboardColor),
+    "--assistant-accent": assistantAccent,
+    "--assistant-foreground": getContrastingTextColor(assistantAccent),
+  };
+
+  if (currentPage === "profile-setup") {
+    return (
+      <div
+        className={`app-shell theme-${appPreferences.theme}${appPreferences.animationsEnabled ? "" : " animations-off"}`}
+        style={appColorVariables}
+      >
+        <ProfileSetupView
+          userInfo={userInfo}
+          onComplete={handleProfileSetupComplete}
+          onSignOut={handleLogout}
+          logoutError={logoutError}
+        />
+      </div>
+    );
   }
 
   if (currentPage === "session-check") {
@@ -2743,7 +3371,10 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell theme-${appPreferences.theme}${appPreferences.animationsEnabled ? "" : " animations-off"}`}
+      style={appColorVariables}
+    >
 
       {/* MOBILE MENU BUTTON */}
       <button
@@ -2781,7 +3412,7 @@ function App() {
                 onClick={() => navigateToPage(item.name)}
               >
                 <Icon size={19} />
-                <span>{item.name}</span>
+                <span>{translate(language, PAGE_TRANSLATION_KEYS[item.name] || item.name)}</span>
                 {item.name === "AI Assistant" && (
                   <span className="ai-badge">AI</span>
                 )}
@@ -2808,7 +3439,7 @@ function App() {
             onClick={() => navigateToPage("Settings")}
           >
             <Settings size={19} />
-            <span>Settings</span>
+            <span>{translate(language, "settings")}</span>
           </button>
 
           <div className="profile">
@@ -2829,7 +3460,7 @@ function App() {
             <button
               className="profile-dots sign-out-button"
               type="button"
-              onClick={handleLogout}
+              onClick={() => setIsLogoutConfirmOpen(true)}
               aria-label="Sign out"
             >
               Sign out
@@ -2847,7 +3478,7 @@ function App() {
         <header className="topbar">
           <div className="page-heading">
             <span className="breadcrumb">Workspace /</span>
-            <h1>{activePage}</h1>
+            <h1>{translate(language, PAGE_TRANSLATION_KEYS[activePage] || activePage)}</h1>
           </div>
 
           <div className="top-actions">
@@ -2859,7 +3490,7 @@ function App() {
                 onClick={() => navigateToPage("Dashboard")}
               >
                 <LayoutDashboard size={16} />
-                <span>Dashboard</span>
+                <span>{translate(language, "dashboard")}</span>
               </button>
             )}
             <form className="search-box" role="search" onSubmit={handleSearchSubmit}>
@@ -2919,6 +3550,37 @@ function App() {
                     <p className="notification-empty" role="alert">
                       Alerts may be incomplete: {transactionError || budgetError}
                     </p>
+                  ) : selectedNotification ? (
+                    <div className="notification-detail">
+                      <button
+                        className="notification-back"
+                        type="button"
+                        onClick={() => setSelectedNotificationId("")}
+                      >
+                        <ArrowLeft size={14} /> Back to notifications
+                      </button>
+                      <article className={`notification-item notification-${selectedNotification.tone}`}>
+                        <span className="notification-item-icon"><Bell size={15} /></span>
+                        <div className="notification-item-copy">
+                          <strong>{selectedNotification.title}</strong>
+                          <p>{selectedNotification.message}</p>
+                          <time dateTime={selectedNotification.createdAt}>
+                            {new Date(selectedNotification.createdAt).toLocaleString("en-IN", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                          </time>
+                        </div>
+                        <button
+                          className="notification-delete"
+                          type="button"
+                          aria-label={`Delete ${selectedNotification.title} notification`}
+                          onClick={() => deleteNotification(selectedNotification.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </article>
+                    </div>
                   ) : visibleNotifications.length > 0 ? (
                     <div className="notification-list">
                       {visibleNotifications.map((notification) => (
@@ -2926,17 +3588,27 @@ function App() {
                           className={`notification-item notification-${notification.tone}${notification.read ? "" : " notification-unread"}`}
                           key={notification.id}
                         >
-                          <span className="notification-item-icon"><Bell size={15} /></span>
-                          <div className="notification-item-copy">
-                            <strong>{notification.title}</strong>
-                            <p>{notification.message}</p>
-                            <time dateTime={notification.createdAt}>
-                              {new Date(notification.createdAt).toLocaleString("en-IN", {
-                                dateStyle: "medium",
-                                timeStyle: "short",
-                              })}
-                            </time>
-                          </div>
+                          <button
+                            className="notification-item-open"
+                            type="button"
+                            aria-label={`Open notification: ${notification.title}`}
+                            onClick={() => openNotification(notification.id)}
+                          >
+                            <span className="notification-item-icon"><Bell size={15} /></span>
+                            <span className="notification-item-copy">
+                              <strong>
+                                {notification.title}
+                                {!notification.read && <span className="notification-unread-indicator" aria-label="Unread" />}
+                              </strong>
+                              <span className="notification-item-message">{notification.message}</span>
+                              <time dateTime={notification.createdAt}>
+                                {new Date(notification.createdAt).toLocaleString("en-IN", {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                })}
+                              </time>
+                            </span>
+                          </button>
                           <button
                             className="notification-delete"
                             type="button"
@@ -2981,33 +3653,33 @@ function App() {
                 <p className="welcome-date">
                   <CalendarDays size={15} /> {welcomeDate}
                 </p>
-                <h2>Welcome, {greetingName}!</h2>
+                <h2>{translate(language, "dashboardGreeting", { name: greetingName })}</h2>
                 <p className="welcome-subtitle">
                   {hasFinancialData
-                    ? "Here's what's happening with your money today."
-                    : "Your dashboard is ready. Add your first transaction, account, or budget to get started."}
+                    ? translate(language, "welcomeToday")
+                    : translate(language, "welcomeEmpty")}
                 </p>
               </div>
 
               <button className="add-button" type="button" onClick={() => setIsTransactionFormOpen(true)}>
-                <Plus size={18} /> Add Transaction
+                <Plus size={18} /> {translate(language, "addTransaction")}
               </button>
             </section>
             <section className="dashboard-period-bar" aria-label="Dashboard reporting period">
               <div>
-                <strong>Financial overview</strong>
-                <span>Choose a week, month, or year to review your activity.</span>
+                <strong>{translate(language, "financialOverview")}</strong>
+                <span>{translate(language, "periodPrompt")}</span>
               </div>
               <div className="dashboard-period-controls">
-                <label htmlFor="dashboard-period">Period</label>
+                <label htmlFor="dashboard-period">{translate(language, "period")}</label>
                 <select
                   id="dashboard-period"
                   value={dashboardPeriod}
                   onChange={(event) => setDashboardPeriod(event.target.value)}
                 >
-                  <option value="WEEKLY">Weekly</option>
-                  <option value="MONTHLY">Monthly</option>
-                  <option value="YEARLY">Yearly</option>
+                  <option value="WEEKLY">{translate(language, "weekly")}</option>
+                  <option value="MONTHLY">{translate(language, "monthly")}</option>
+                  <option value="YEARLY">{translate(language, "yearly")}</option>
                 </select>
                 <label className="visually-hidden" htmlFor="dashboard-period-date">
                   {dashboardPeriod === "WEEKLY" ? "Week containing" : dashboardPeriod === "MONTHLY" ? "Month" : "Year"}
@@ -3044,13 +3716,10 @@ function App() {
               {stats.map((stat, index) => {
                 const Icon = stat.icon;
                 return (
-                  <motion.div
+                  <div
                     key={stat.title}
-                    className={`stat-card ${stat.className}`}
-                    initial={{ opacity: 0, y: 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    whileHover={{ y: -5 }}
+                    className={`stat-card ${stat.className}${appPreferences.animationsEnabled ? " stat-card-animated" : ""}`}
+                    style={{ "--stat-card-animation-delay": `${index * 0.1}s` }}
                   >
                     <div className="stat-top">
                       <div className="stat-icon">
@@ -3071,7 +3740,7 @@ function App() {
                         Add starting balance
                       </button>
                     )}
-                  </motion.div>
+                  </div>
                 );
               })}
             </section>
@@ -3093,43 +3762,22 @@ function App() {
                       <span><i className="legend-expense" /> Expenses</span>
                     </div>
                     <div className="area-chart">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={dashboardAnalytics.monthly}>
-                          <defs>
-                            <linearGradient id="dashboardIncomeGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#9b7bff" stopOpacity={0.35} />
-                              <stop offset="95%" stopColor="#9b7bff" stopOpacity={0} />
-                            </linearGradient>
-                            <linearGradient id="dashboardExpenseGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#38d9b2" stopOpacity={0.2} />
-                              <stop offset="95%" stopColor="#38d9b2" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid stroke="#292d40" strokeDasharray="4 5" vertical={false} />
-                          <XAxis dataKey="label" stroke="#777d94" tickLine={false} axisLine={false} />
-                          <YAxis
-                            stroke="#777d94"
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(value) => CURRENCY_FORMATTER.format(value)}
-                            width={82}
-                          />
-                          <Tooltip
-                            contentStyle={{
-                              background: "#202438",
-                              border: "1px solid #363b54",
-                              borderRadius: "12px",
-                              color: "#fff",
-                            }}
-                            formatter={(value, name) => [
-                              CURRENCY_FORMATTER.format(value),
-                              name === "income" ? "Income" : "Expenses",
-                            ]}
-                          />
-                          <Area type="monotone" dataKey="income" stroke="#a78bfa" strokeWidth={3} fill="url(#dashboardIncomeGradient)" />
-                          <Area type="monotone" dataKey="expenses" stroke="#38d9b2" strokeWidth={3} fill="url(#dashboardExpenseGradient)" />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                      <React.Suspense fallback={<div className="chart-loading-placeholder" aria-hidden="true" />}>
+                        <CashFlowChart
+                          data={dashboardAnalytics.monthly}
+                          gradientId="dashboard"
+                          currencyFormatter={(value) => CURRENCY_FORMATTER.format(value)}
+                          yAxisFormatter={(value) => CURRENCY_FORMATTER.format(value)}
+                          yAxisWidth={82}
+                          tooltipContentStyle={{
+                            background: "#202438",
+                            border: "1px solid #363b54",
+                            borderRadius: "12px",
+                            color: "#fff",
+                          }}
+                          strokeWidth={3}
+                        />
+                      </React.Suspense>
                     </div>
                   </>
                 ) : (
@@ -3149,32 +3797,21 @@ function App() {
                 {dashboardAnalytics.categories.length > 0 ? (
                   <>
                     <div className="donut-container">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={dashboardAnalytics.categories}
-                            dataKey="value"
-                            nameKey="name"
-                            innerRadius={65}
-                            outerRadius={90}
-                            paddingAngle={5}
-                            stroke="none"
-                          >
-                            {dashboardAnalytics.categories.map((item) => (
-                              <Cell key={item.name} fill={item.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            contentStyle={{
-                              background: "#202438",
-                              border: "1px solid #363b54",
-                              borderRadius: "10px",
-                              color: "#fff",
-                            }}
-                            formatter={(value) => CURRENCY_FORMATTER.format(value)}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      <React.Suspense fallback={<div className="chart-loading-placeholder" aria-hidden="true" />}>
+                        <SpendingCategoryChart
+                          data={dashboardAnalytics.categories}
+                          innerRadius={65}
+                          outerRadius={90}
+                          paddingAngle={5}
+                          tooltipContentStyle={{
+                            background: "#202438",
+                            border: "1px solid #363b54",
+                            borderRadius: "10px",
+                            color: "#fff",
+                          }}
+                          currencyFormatter={(value) => CURRENCY_FORMATTER.format(value)}
+                        />
+                      </React.Suspense>
                       <div className="donut-center">
                         <span>Total Spent</span>
                         <strong>{CURRENCY_FORMATTER.format(dashboardAnalytics.expenses)}</strong>
@@ -3219,11 +3856,7 @@ function App() {
               </div>
 
               {/* AI INSIGHT */}
-              <motion.div
-                className="panel ai-panel"
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-              >
+              <div className={`panel ai-panel${appPreferences.animationsEnabled ? " ai-panel-animated" : ""}`}>
                 <div className="ai-heading">
                   <div className="ai-sparkle"><Sparkles size={23} /></div>
                   <span>FINSIGHT</span>
@@ -3251,7 +3884,7 @@ function App() {
                 >
                   Explore AI Insights <ArrowUpRight size={17} />
                 </button>
-              </motion.div>
+              </div>
             </section>
 
             <footer className="dashboard-footer">
@@ -3312,10 +3945,22 @@ function App() {
                 <button className="add-button" type="button" onClick={() => setIsTransactionFormOpen(true)}>
                   <Plus size={18} /> Add Transaction
                 </button>
+                <button
+                  className="profile-delete-button"
+                  type="button"
+                  onClick={() => {
+                    setResetTransactionsError("");
+                    setIsResetTransactionsConfirmOpen(true);
+                  }}
+                  disabled={transactions.length === 0}
+                >
+                  Reset transactions
+                </button>
               </div>
             </div>
             {transactionError && <p className="transaction-form-error" role="alert">{transactionError}</p>}
             {transactionPdfError && <p className="transaction-form-error" role="alert">{transactionPdfError}</p>}
+            {resetTransactionsError && <p className="transaction-form-error" role="alert">{resetTransactionsError}</p>}
             <div className="transaction-list">
               <TransactionList transactions={transactions} />
             </div>
@@ -3325,7 +3970,7 @@ function App() {
             <div className="transactions-page-header">
               <div>
                 <h2>Your accounts</h2>
-                <p>Track account balances in Indian rupees.</p>
+                <p>Track account balances and starting amounts in Indian rupees.</p>
               </div>
               <button className="add-button" type="button" onClick={() => setIsAccountFormOpen(true)}>
                 <Plus size={18} /> Add Account
@@ -3378,12 +4023,13 @@ function App() {
           />
         ) : activePage === "AI Assistant" ? (
           <AiAssistantView
+            language={language}
             context={{
               rangeLabel: dashboardPeriodRange.label,
               transactions: dashboardPeriodTransactions,
               income: periodIncome,
               expenses: periodExpenses,
-              balance: accountBalance,
+              balance: currentNetCashBalance,
               budgets,
             }}
           />
@@ -3392,15 +4038,19 @@ function App() {
             pageMode="Profile"
             userInfo={userInfo}
             greetingName={greetingName}
+            language={language}
+            onLanguageChange={setLanguage}
             preferences={alertPreferences}
+            appPreferences={appPreferences}
             profilePhoto={profilePhoto}
             profilePhotoZoom={profilePhotoZoom}
             onProfilePhotoView={() => setIsProfilePhotoOpen(true)}
             onPreferenceChange={handleAlertPreferenceChange}
+            onAppPreferenceChange={handleAppPreferenceChange}
             onProfileUpdated={handleProfileUpdated}
             onProfilePhotoChange={handleProfilePhotoChange}
             onProfilePhotoZoomChange={handleProfilePhotoZoomChange}
-            onLogout={handleLogout}
+            onLogout={() => setIsLogoutConfirmOpen(true)}
             onDeleteAccount={handleDeleteAccount}
             onNavigate={navigateToPage}
           />
@@ -3409,15 +4059,19 @@ function App() {
             pageMode={activePage}
             userInfo={userInfo}
             greetingName={greetingName}
+            language={language}
+            onLanguageChange={setLanguage}
             preferences={alertPreferences}
+            appPreferences={appPreferences}
             profilePhoto={profilePhoto}
             profilePhotoZoom={profilePhotoZoom}
             onProfilePhotoView={() => setIsProfilePhotoOpen(true)}
             onPreferenceChange={handleAlertPreferenceChange}
+            onAppPreferenceChange={handleAppPreferenceChange}
             onProfileUpdated={handleProfileUpdated}
             onProfilePhotoChange={handleProfilePhotoChange}
             onProfilePhotoZoomChange={handleProfilePhotoZoomChange}
-            onLogout={handleLogout}
+            onLogout={() => setIsLogoutConfirmOpen(true)}
             onDeleteAccount={handleDeleteAccount}
             onNavigate={navigateToPage}
           />
@@ -3430,20 +4084,6 @@ function App() {
               Back to Dashboard
             </button>
           </section>
-        )}
-        {activePage !== "AI Assistant" && (
-          <div className="page-back-navigation">
-            <button
-              className="dashboard-nav-button back-nav-button"
-              type="button"
-              aria-label="Go back"
-              onClick={handleGoBack}
-              disabled={pageHistory.length === 0}
-            >
-              <ArrowLeft size={16} />
-              <span>Back</span>
-            </button>
-          </div>
         )}
       </main>
       {isTransactionFormOpen && (
@@ -3463,6 +4103,73 @@ function App() {
           onClose={() => setIsBudgetFormOpen(false)}
           onCreated={handleBudgetCreated}
         />
+      )}
+      {isLogoutConfirmOpen && (
+        <div className="transaction-modal-backdrop">
+          <section
+            className="transaction-modal panel"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="confirm-signout-title"
+          >
+            <div className="transaction-modal-header">
+              <div>
+                <h2 id="confirm-signout-title">Sign out of FinSight?</h2>
+                <p>Are you sure you want to end your current session?</p>
+              </div>
+            </div>
+            {logoutError && <p className="profile-form-error" role="alert">{logoutError}</p>}
+            <div className="transaction-form-actions">
+              <button
+                className="profile-secondary-button"
+                type="button"
+                onClick={() => setIsLogoutConfirmOpen(false)}
+                disabled={isLoggingOut}
+              >
+                Cancel
+              </button>
+              <button className="profile-delete-button" type="button" onClick={handleLogout} disabled={isLoggingOut}>
+                {isLoggingOut ? "Signing out..." : "Confirm sign out"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {isResetTransactionsConfirmOpen && (
+        <div className="transaction-modal-backdrop">
+          <section
+            className="transaction-modal panel"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="confirm-reset-transactions-title"
+          >
+            <div className="transaction-modal-header">
+              <div>
+                <h2 id="confirm-reset-transactions-title">Reset all transactions?</h2>
+                <p>This permanently removes your saved transactions. Your accounts and budgets will remain.</p>
+              </div>
+            </div>
+            {resetTransactionsError && <p className="profile-form-error" role="alert">{resetTransactionsError}</p>}
+            <div className="transaction-form-actions">
+              <button
+                className="profile-secondary-button"
+                type="button"
+                onClick={() => setIsResetTransactionsConfirmOpen(false)}
+                disabled={isResettingTransactions}
+              >
+                Cancel
+              </button>
+              <button
+                className="profile-delete-button"
+                type="button"
+                onClick={handleResetTransactions}
+                disabled={isResettingTransactions}
+              >
+                {isResettingTransactions ? "Resetting..." : "Reset transactions"}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
       {isProfilePhotoOpen && profilePhoto && (
         <div

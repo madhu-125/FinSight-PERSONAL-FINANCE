@@ -197,12 +197,11 @@ export default function Login({ onLogin, onBackToLanding }) {
     setAuthError("");
     setIsResettingPassword(true);
     try {
-      const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
       await parseApiResponse(await fetch(`${API_BASE_URL}/api/auth/password/forgot`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ channel: otpChannel, ...recipient }),
+        body: JSON.stringify({ channel: "email", email }),
       }));
       setResetOtpSent(true);
       setResetCode("");
@@ -234,14 +233,13 @@ export default function Login({ onLogin, onBackToLanding }) {
 
     setIsResettingPassword(true);
     try {
-      const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
       await parseApiResponse(await fetch(`${API_BASE_URL}/api/auth/password/reset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          channel: otpChannel,
-          ...recipient,
+          channel: "email",
+          email,
           code: resetCode,
           newPassword,
         }),
@@ -267,6 +265,7 @@ export default function Login({ onLogin, onBackToLanding }) {
       phone: otpChannel === "sms" ? getPhoneNumber(phone) : "",
       channel: otpChannel,
       remember,
+      isNewAccount: signupMode,
     });
   };
 
@@ -326,10 +325,8 @@ export default function Login({ onLogin, onBackToLanding }) {
             <p className="lumi-subtitle">
               {forgotPasswordMode
                 ? resetOtpSent
-                  ? `Enter the code sent to ${otpChannel === "email" ? email : phone}, then choose a new password.`
-                : otpChannel === "email"
-                  ? "We'll send a reset code if an account exists for that email address."
-                  : "We'll send a verification code if an account exists for that number."
+                  ? `Enter the code sent to ${email}, then choose a new password.`
+                  : "Email reset codes are available only for accounts registered with that email address."
                 : signupMode
                     ? "Create an account with your email or mobile number and password. No verification code is required."
                   : "Sign in securely with your password."}
@@ -400,7 +397,7 @@ export default function Login({ onLogin, onBackToLanding }) {
                         setAuthError("");
                       }}
                     >
-                      Change email or phone
+                      Change email address
                     </button>
                     <button
                       type="button"
@@ -414,47 +411,11 @@ export default function Login({ onLogin, onBackToLanding }) {
                 </>
               ) : (
                 <>
-                  <div className="lumi-tabs lumi-channel-tabs" aria-label="Choose reset code delivery method">
-                    {["email", "sms"].map((channel) => (
-                      <button
-                        type="button"
-                        key={channel}
-                        className={`lumi-tab ${otpChannel === channel ? "active" : ""}`}
-                        aria-pressed={otpChannel === channel}
-                        onClick={() => {
-                          setOtpChannel(channel);
-                          setAuthError("");
-                        }}
-                      >
-                        {channel === "email" ? "Email" : "Mobile"}
-                      </button>
-                    ))}
-                  </div>
                   <form onSubmit={requestPasswordReset}>
-                    {otpChannel === "email" ? (
-                      <div className="lumi-input-group">
-                        <label htmlFor="lumi-reset-email">Email Address</label>
-                        <input id="lumi-reset-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" required />
-                      </div>
-                    ) : (
-                      <div className="lumi-input-group">
-                        <label htmlFor="lumi-reset-phone">Mobile phone number</label>
-                        <div className="lumi-phone-input">
-                          <span>+91</span>
-                          <input
-                            id="lumi-reset-phone"
-                            type="tel"
-                            value={phone}
-                            onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 10))}
-                            placeholder="9876543210"
-                            inputMode="numeric"
-                            pattern="[0-9]{10}"
-                            autoComplete="tel"
-                            required
-                          />
-                        </div>
-                      </div>
-                    )}
+                    <div className="lumi-input-group">
+                      <label htmlFor="lumi-reset-email">Email Address</label>
+                      <input id="lumi-reset-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" required />
+                    </div>
                     {authError && <p className="lumi-auth-error" role="alert">{authError}</p>}
                     <button type="submit" className="lumi-submit-btn" disabled={isResettingPassword}>
                       {isResettingPassword ? "Sending code..." : "Send reset code"} <span>↗</span>

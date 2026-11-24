@@ -14,7 +14,7 @@
   <name>finsight-auth</name>
   <description>FinSight email and SMS OTP authentication API</description>
   <properties>
-    <java.version>17</java.version>
+    <java.version>25</java.version>
   </properties>
   <dependencies>
     <dependency>
@@ -67,15 +67,6 @@
     </dependency>
   </dependencies>
   <build>
-    <resources>
-      <resource>
-        <directory>src/main/resources</directory>
-      </resource>
-      <resource>
-        <directory>${project.basedir}/database/migrations</directory>
-        <targetPath>db/migration</targetPath>
-      </resource>
-    </resources>
     <plugins>
       <plugin>
         <groupId>org.springframework.boot</groupId>

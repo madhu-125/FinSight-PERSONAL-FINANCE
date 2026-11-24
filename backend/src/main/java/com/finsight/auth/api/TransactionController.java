@@ -4,9 +4,11 @@ package com.finsight.auth.api;
 import com.finsight.auth.service.CurrentUserService;
 import com.finsight.auth.service.FinanceTransactionService;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -40,5 +42,13 @@ public class TransactionController {
     ) {
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(transactions.create(currentUser.requireUserId(token), request));
+    }
+
+    @DeleteMapping
+    public Map<String, Object> deleteAll(
+        @CookieValue(name = COOKIE_NAME, required = false) String token
+    ) {
+        long deletedCount = transactions.deleteAllForUser(currentUser.requireUserId(token));
+        return Map.of("deleted", true, "count", deletedCount);
     }
 }

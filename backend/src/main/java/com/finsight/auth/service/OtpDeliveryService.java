@@ -1,5 +1,5 @@
 package com.finsight.auth.service;
-// Delivers one-time verification codes through the configured channels.
+// Delivers one-time verification codes by email.
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -7,13 +7,11 @@ import com.finsight.auth.api.AuthException;
 import jakarta.mail.MessagingException;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -39,9 +37,6 @@ public class OtpDeliveryService {
     private final String smtpHost;
     private final String mailFrom;
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
-    private final String twilioAccountSid;
-    private final String twilioAuthToken;
-    private final String twilioFromNumber;
     private final boolean consoleDeliveryEnabled;
 
     public OtpDeliveryService(
@@ -51,9 +46,6 @@ public class OtpDeliveryService {
         @Value("${spring.mail.host:}") String smtpHost,
         @Value("${finsight.mail.from:}") String mailFrom,
         ObjectProvider<JavaMailSender> mailSenderProvider,
-        @Value("${finsight.twilio.account-sid:}") String twilioAccountSid,
-        @Value("${finsight.twilio.auth-token:}") String twilioAuthToken,
-        @Value("${finsight.twilio.from-number:}") String twilioFromNumber,
         @Value("${finsight.otp.console-delivery.enabled:false}") boolean consoleDeliveryEnabled
     ) {
         this.objectMapper = objectMapper;
@@ -62,29 +54,25 @@ public class OtpDeliveryService {
         this.smtpHost = smtpHost;
         this.mailFrom = mailFrom;
         this.mailSenderProvider = mailSenderProvider;
-        this.twilioAccountSid = twilioAccountSid;
-        this.twilioAuthToken = twilioAuthToken;
-        this.twilioFromNumber = twilioFromNumber;
         this.consoleDeliveryEnabled = consoleDeliveryEnabled;
     }
 
     public void send(String channel, String destination, String code) {
-        if (channel.equals("email")) {
-            sendEmail(destination, code);
-            return;
+        if (!"email".equals(channel)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "OTP verification is available by email only.");
         }
-        sendSms(destination, code);
+        sendEmail(destination, code);
     }
 
     private void sendEmail(String email, String code) {
         String text = "Your FinSight verification code is " + code + ". It expires in 10 minutes.";
-        if (!resendApiKey.isBlank() && !resendFromEmail.isBlank()) {
-            sendResendEmail(email, code, text);
-            return;
-        }
         JavaMailSender mailSender = smtpHost.isBlank() ? null : mailSenderProvider.getIfAvailable();
         if (mailSender != null && !mailFrom.isBlank()) {
             sendSmtpEmail(mailSender, email, code, text);
+            return;
+        }
+        if (!resendApiKey.isBlank() && !resendFromEmail.isBlank()) {
+            sendResendEmail(email, code, text);
             return;
         }
         if (consoleDeliveryEnabled) {
@@ -140,39 +128,6 @@ public class OtpDeliveryService {
         }
     }
 
-    private void sendSms(String phone, String code) {
-        if (twilioAccountSid.isBlank() || twilioAuthToken.isBlank() || twilioFromNumber.isBlank()) {
-            if (consoleDeliveryEnabled) {
-                LOGGER.warn("SMS OTP delivery fallback enabled; an SMS provider is not configured.");
-                LOGGER.info("Development SMS OTP for {}: {}", phone, code);
-                return;
-            }
-            throw new AuthException(HttpStatus.SERVICE_UNAVAILABLE, "SMS verification is not configured on this server.");
-        }
-        String accountPath = URLEncoder.encode(twilioAccountSid, StandardCharsets.UTF_8);
-        String form = "To=" + formEncode(phone)
-            + "&From=" + formEncode(twilioFromNumber)
-            + "&Body=" + formEncode(
-                "Your FinSight verification code is " + code + ". It expires in 10 minutes."
-            );
-        String credentials = Base64.getEncoder().encodeToString(
-            (twilioAccountSid + ":" + twilioAuthToken).getBytes(StandardCharsets.UTF_8)
-        );
-        HttpRequest request = HttpRequest.newBuilder(URI.create(
-                "https://api.twilio.com/2010-04-01/Accounts/" + accountPath + "/Messages.json"
-            ))
-            .timeout(Duration.ofSeconds(15))
-            .header("Authorization", "Basic " + credentials)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .POST(HttpRequest.BodyPublishers.ofString(form))
-            .build();
-        sendRequest(request, "SMS");
-    }
-
-    private String formEncode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
-    }
-
     private void sendRequest(HttpRequest request, String channel) {
         try {
             HttpResponse<Void> response = HTTP_CLIENT.send(
@@ -183,7 +138,7 @@ public class OtpDeliveryService {
                 LOGGER.warn("{} provider returned HTTP {}", channel, response.statusCode());
                 throw new AuthException(
                     HttpStatus.BAD_GATEWAY,
-                    "Could not send the verification " + channel + ". Check the delivery service configuration."
+                    providerFailureMessage(channel, response.statusCode())
                 );
             }
         } catch (InterruptedException exception) {
@@ -194,5 +149,15 @@ public class OtpDeliveryService {
             LOGGER.warn("{} provider request failed: {}", channel, exception.getClass().getSimpleName());
             throw new AuthException(HttpStatus.BAD_GATEWAY, "Could not send the verification " + channel + ".");
         }
+    }
+
+    static String providerFailureMessage(String channel, int statusCode) {
+        if (channel.equals("email") && statusCode == 403) {
+            return "Resend rejected the email. Verify a sending domain and use an address from that domain in RESEND_FROM_EMAIL. The onboarding@resend.dev sender is limited to Resend testing.";
+        }
+        if (channel.equals("email") && statusCode == 401) {
+            return "Resend rejected the API key. Check RESEND_API_KEY in the backend .env, then restart the API.";
+        }
+        return "Could not send the verification " + channel + ". Check the delivery service configuration.";
     }
 }

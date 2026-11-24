@@ -32,6 +32,11 @@ public class FinanceTransactionService {
     }
 
     @Transactional
+    public long deleteAllForUser(Long userId) {
+        return transactions.deleteByUserId(userId);
+    }
+
+    @Transactional
     public TransactionResponse create(Long userId, TransactionRequest request) {
         if (request == null) {
             throw new AuthException(HttpStatus.BAD_REQUEST, "Transaction details are required.");

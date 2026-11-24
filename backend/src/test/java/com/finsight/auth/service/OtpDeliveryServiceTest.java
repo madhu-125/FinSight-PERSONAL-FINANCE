@@ -1,6 +1,7 @@
 package com.finsight.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -27,9 +28,6 @@ class OtpDeliveryServiceTest {
             "",
             "",
             objectProvider(),
-            "",
-            "",
-            "",
             true
         );
 
@@ -37,7 +35,7 @@ class OtpDeliveryServiceTest {
     }
 
     @Test
-    void consoleSmsDeliveryIsUsedWithoutAProvider() {
+    void smsOtpDeliveryIsRejected() {
         OtpDeliveryService delivery = new OtpDeliveryService(
             objectMapper,
             "",
@@ -45,13 +43,14 @@ class OtpDeliveryServiceTest {
             "",
             "",
             objectProvider(),
-            "",
-            "",
-            "",
             true
         );
 
-        assertDoesNotThrow(() -> delivery.send("sms", "+14155550123", "123456"));
+        AuthException exception = assertThrows(
+            AuthException.class,
+            () -> delivery.send("sms", "+14155550123", "123456")
+        );
+        assertEquals("OTP verification is available by email only.", exception.getMessage());
     }
 
     @Test
@@ -61,11 +60,37 @@ class OtpDeliveryServiceTest {
     }
 
     @Test
+    void resendForbiddenErrorExplainsSenderDomainRequirement() {
+        assertEquals(
+            "Resend rejected the email. Verify a sending domain and use an address from that domain in RESEND_FROM_EMAIL. The onboarding@resend.dev sender is limited to Resend testing.",
+            OtpDeliveryService.providerFailureMessage("email", 403)
+        );
+    }
+
+    @Test
     void smtpEmailDeliveryUsesConfiguredSender() {
         JavaMailSender mailSender = mock(JavaMailSender.class);
         when(mailSender.createMimeMessage()).thenReturn(new MimeMessage(Session.getInstance(new Properties())));
         OtpDeliveryService delivery = delivery("", "", "smtp.example.com", "noreply@example.com",
             providerFor(mailSender), false);
+
+        delivery.send("email", "person@example.com", "123456");
+
+        verify(mailSender).send(org.mockito.ArgumentMatchers.any(MimeMessage.class));
+    }
+
+    @Test
+    void configuredSmtpTakesPrecedenceOverResend() {
+        JavaMailSender mailSender = mock(JavaMailSender.class);
+        when(mailSender.createMimeMessage()).thenReturn(new MimeMessage(Session.getInstance(new Properties())));
+        OtpDeliveryService delivery = delivery(
+            "resend-key",
+            "FinSight <verified@example.com>",
+            "smtp.gmail.com",
+            "noreply@example.com",
+            providerFor(mailSender),
+            false
+        );
 
         delivery.send("email", "person@example.com", "123456");
 
@@ -87,9 +112,6 @@ class OtpDeliveryServiceTest {
             smtpHost,
             mailFrom,
             mailSenderProvider,
-            "",
-            "",
-            "",
             consoleDeliveryEnabled
         );
     }

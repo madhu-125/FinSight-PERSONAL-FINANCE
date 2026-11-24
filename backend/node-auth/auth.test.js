@@ -4,7 +4,6 @@ const { after, before, test } = require("node:test");
 const { createAuthServer } = require("./index");
 
 const emailMessages = [];
-const smsMessages = [];
 let currentTime = Date.now();
 let server;
 let baseUrl;
@@ -13,21 +12,10 @@ before(async () => {
   server = createAuthServer({
     resendApiKey: "test-api-key",
     fromEmail: "FinSight <verified@example.com>",
-    twilioAccountSid: "AC123456789",
-    twilioAuthToken: "test-twilio-token",
-    twilioFromNumber: "+14155550100",
     otpSecret: "a".repeat(64),
     fetchImpl: async (url, options) => {
-      if (url === "https://api.resend.com/emails") {
-        emailMessages.push(JSON.parse(options.body));
-      } else {
-        assert.equal(
-          url,
-          "https://api.twilio.com/2010-04-01/Accounts/AC123456789/Messages.json"
-        );
-        assert.equal(options.headers.Authorization, `Basic ${Buffer.from("AC123456789:test-twilio-token").toString("base64")}`);
-        smsMessages.push(Object.fromEntries(new URLSearchParams(options.body)));
-      }
+      assert.equal(url, "https://api.resend.com/emails");
+      emailMessages.push(JSON.parse(options.body));
       return { ok: true, status: 200 };
     },
     now: () => currentTime,
@@ -93,34 +81,20 @@ test("sends an OTP, verifies it, persists a session cookie, and logs out", async
   assert.deepEqual(await loggedOutResponse.json(), { authenticated: false });
 });
 
-test("sends and verifies an SMS OTP for an international phone number", async () => {
-  const phone = "+14155550123";
-  const sendResponse = await post("/api/auth/otp/send", { channel: "sms", phone });
-  assert.equal(sendResponse.status, 200);
-  assert.equal((await sendResponse.json()).channel, "sms");
-
-  const message = smsMessages[smsMessages.length - 1];
-  assert.equal(message.To, phone);
-  assert.equal(message.From, "+14155550100");
-  const code = message.Body.match(/\b\d{6}\b/)[0];
-  const verifyResponse = await post("/api/auth/otp/verify", { channel: "sms", phone, code });
-  assert.equal(verifyResponse.status, 200);
-
-  const sessionCookie = verifyResponse.headers.get("set-cookie").split(";")[0];
-  const sessionResponse = await fetch(`${baseUrl}/api/auth/session`, {
-    headers: { Cookie: sessionCookie },
-  });
-  assert.deepEqual(await sessionResponse.json(), {
-    authenticated: true,
-    channel: "sms",
-    phone,
-  });
-});
-
-test("rejects SMS numbers that are not in international format", async () => {
-  const response = await post("/api/auth/otp/send", { channel: "sms", phone: "4155550123" });
+test("rejects SMS OTP requests", async () => {
+  const messageCount = emailMessages.length;
+  const response = await post("/api/auth/otp/send", { channel: "sms", phone: "+14155550123" });
   assert.equal(response.status, 400);
-  assert.match((await response.json()).error, /international format/i);
+  assert.match((await response.json()).error, /email only/i);
+
+  const verifyResponse = await post("/api/auth/otp/verify", {
+    channel: "sms",
+    phone: "+14155550123",
+    code: "123456",
+  });
+  assert.equal(verifyResponse.status, 400);
+  assert.match((await verifyResponse.json()).error, /email only/i);
+  assert.equal(emailMessages.length, messageCount);
 });
 
 test("rejects expired verification codes", async () => {

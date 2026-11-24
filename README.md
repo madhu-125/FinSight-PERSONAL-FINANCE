@@ -3,8 +3,8 @@
 ## Project layout
 
 - `frontend/` contains the React app, assets, and its npm scripts.
-- `backend/` contains the Spring Boot API, the optional `node-auth/` OTP server, and `database/migrations/`.
-- `backend/database/migrations/` contains Flyway SQL migrations. Maven packages these files into the Spring API at build time.
+- `backend/` contains the Spring Boot API and the optional `node-auth/` OTP server.
+- `backend/src/main/resources/db/migrations/` contains Flyway SQL migrations bundled with the Spring API.
 - Root `.env` contains local backend secrets; `frontend/.env` contains only React settings. Neither file should be committed.
 
 The React frontend owns page rendering and user interactions; the Spring backend exposes authenticated APIs and delegates business rules and database access to its services.
@@ -41,24 +41,22 @@ The root `render.yaml` defines a React static site and a Spring Boot Docker web 
 
 The Blueprint generates `OTP_SECRET` and enables secure session cookies for HTTPS. Keep `OTP_CONSOLE_DELIVERY_ENABLED` and `DEMO_AUTH_ENABLED` set to `false` in production. Free Render services may spin down when idle, so the first request after inactivity can take longer.
 
-Email OTP delivery for password resets requires a valid `RESEND_API_KEY` and a sender address verified by Resend in the root `.env`. Mobile password-reset codes require `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER`. Restart the Spring API after changing these values. For local-only reset testing without delivery-provider credentials, `OTP_CONSOLE_DELIVERY_ENABLED=true` logs codes in the backend console; never enable this in production.
+Email OTP delivery for password resets can use Resend with a verified sender domain or SMTP. For Gmail SMTP, use `smtp.gmail.com`, port `587`, your Gmail address, and a Google App Password (not your normal Gmail password); configured SMTP takes precedence over Resend. Password reset and OTP verification are email-only. For local-only reset testing without delivery-provider credentials, `OTP_CONSOLE_DELIVERY_ENABLED=true` logs codes in the backend console; never enable this in production.
 
 The backend Google OAuth integration requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the root `.env`; register `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI in Google Cloud. Social sign-in buttons are currently hidden from the UI.
 
-For mobile password-reset codes, configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER` in the root `.env`, then restart the Spring API. These values must come from a Twilio account with SMS enabled; do not commit or share them.
-
-The optional Node server supports OTP authentication but not finance data storage. Use the Spring API for finance endpoints.
+The optional Node server supports email OTP authentication but not finance data storage. Use the Spring API for finance endpoints.
 
 ## Sign-in and profile
 
-Sign-up creates the account directly with an email address or mobile number and a password entered once; no contact or password confirmation is required. The account is signed in immediately after registration. Passwords must be at least 8 characters and no more than 72 UTF-8 bytes. Later sign-ins require that password. **Forgot password?** sends a one-time reset code to the registered contact. Profile name, age, gender, mobile contact, and address are stored with the signed-in account; the editable profile mobile is separate from the sign-in email or phone. Photos and notification preferences remain local to the browser. Photos can be uploaded or taken as a selfie, resized, and reframed in Profile.
+Sign-up creates the account directly with an email address or mobile number and a password entered once; no contact or password confirmation is required. The account is signed in immediately after registration. Passwords must be at least 8 characters and no more than 72 UTF-8 bytes. Later sign-ins require that password. **Forgot password?** sends a one-time reset code by email; SMS verification is not available. Password recovery requires an account registered with the entered email address. Profile name, age, gender, mobile contact, and address are stored with the signed-in account; the editable profile mobile is separate from the sign-in email or phone. Photos and notification preferences remain local to the browser. Photos can be uploaded or taken as a selfie, resized, and reframed in Profile.
 
 Budgets can be created as weekly, monthly, or fixed two-month periods. On the Budgets page, choose a period and download a PDF containing the saved budgets of that frequency.
 Transaction reports can be downloaded as a selected day, week, or month. Selfies use the browser camera when available; uploaded photos remain an alternative.
 
 ## Database and tests
 
-Transactions, accounts, and budgets are stored per signed-in user in MySQL. Flyway migrations live in `backend/database/migrations/` and are bundled with the Spring API; you do not need to run them manually.
+Transactions, accounts, and budgets are stored per signed-in user in MySQL. Flyway migrations live in `backend/src/main/resources/db/migrations/` and are bundled with the Spring API; you do not need to run them manually.
 
 - Frontend tests/build: run `npm test -- --watchAll=false` or `npm run build` from `frontend`.
 - Node OTP server tests: run `npm run test:server` from `frontend`.

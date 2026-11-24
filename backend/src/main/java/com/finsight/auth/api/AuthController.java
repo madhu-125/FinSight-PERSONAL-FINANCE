@@ -101,7 +101,7 @@ public class AuthController {
         authService.sendPasswordResetOtp(request);
         return Map.of(
             "sent", true,
-            "message", "If an account exists for that address or number, a reset code has been sent."
+            "message", "If an account exists for that email address, a reset code has been sent."
         );
     }
 

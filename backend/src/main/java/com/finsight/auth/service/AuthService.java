@@ -89,13 +89,13 @@ public class AuthService {
 
     @Transactional(noRollbackFor = AuthException.class)
     public OtpSent sendOtp(OtpSendRequest request) {
-        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        Recipient recipient = resolveEmailOtpRecipient(request.channel(), request.email());
         return sendOtp(recipient, challengeKey(recipient.channel(), recipient.destination()));
     }
 
     @Transactional(noRollbackFor = AuthException.class)
     public void sendPasswordResetOtp(OtpSendRequest request) {
-        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        Recipient recipient = resolveEmailOtpRecipient(request.channel(), request.email());
         if (users.findByChannelAndDestination(recipient.channel(), recipient.destination()).isEmpty()) {
             return;
         }
@@ -134,7 +134,7 @@ public class AuthService {
 
     @Transactional(noRollbackFor = AuthException.class)
     public LoginResult verifyOtp(OtpVerifyRequest request) {
-        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        Recipient recipient = resolveEmailOtpRecipient(request.channel(), request.email());
         String displayName = normalizeDisplayName(request.displayName());
         String password = request.password() == null || request.password().isBlank()
             ? null
@@ -145,7 +145,7 @@ public class AuthService {
 
     @Transactional(noRollbackFor = AuthException.class)
     public void resetPassword(PasswordResetRequest request) {
-        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        Recipient recipient = resolveEmailOtpRecipient(request.channel(), request.email());
         String newPassword = validateNewPassword(request.newPassword());
         String resetChallengeKey = passwordResetChallengeKey(recipient);
         verifyAndConsumeOtp(resetChallengeKey, request.code());
@@ -371,7 +371,7 @@ public class AuthService {
     ) {
         String channel = channelValue == null ? "email" : channelValue.trim().toLowerCase(Locale.ROOT);
         if (!channel.equals("email") && !channel.equals("sms")) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose email or SMS.");
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose email or mobile number.");
         }
 
         String destinationValue = channel.equals("email") ? emailValue : phoneValue;
@@ -435,10 +435,17 @@ public class AuthService {
         users.delete(user);
     }
 
+    private Recipient resolveEmailOtpRecipient(String channelValue, String emailValue) {
+        if (channelValue != null && !channelValue.trim().equalsIgnoreCase("email")) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "OTP verification is available by email only.");
+        }
+        return resolveRecipient("email", emailValue, null);
+    }
+
     private Recipient resolveRecipient(String channelValue, String emailValue, String phoneValue) {
         String channel = channelValue == null ? "email" : channelValue.trim().toLowerCase(Locale.ROOT);
         if (!channel.equals("email") && !channel.equals("sms")) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose email or SMS verification.");
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose email or mobile number.");
         }
 
         if (channel.equals("email")) {

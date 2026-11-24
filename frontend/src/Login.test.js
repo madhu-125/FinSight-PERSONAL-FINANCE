@@ -88,6 +88,7 @@ test('mobile sign-in verifies the password without sending an OTP', async () => 
       phone: '+919876543210',
       channel: 'sms',
       remember: false,
+      isNewAccount: false,
     }));
     expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/login`, expect.objectContaining({
       method: 'POST',
@@ -132,6 +133,7 @@ test('email sign-in verifies the password without sending an OTP', async () => {
       phone: '',
       channel: 'email',
       remember: false,
+      isNewAccount: false,
     }));
     expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/login`, expect.objectContaining({
       method: 'POST',
@@ -164,7 +166,10 @@ test('password reset requests a code and submits a matching new password', async
 
   const { unmount } = render(<Login onLogin={jest.fn()} />);
   fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'casey@example.com' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Mobile' }));
   fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
+  expect(screen.queryByRole('button', { name: 'Mobile' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Email Address')).toHaveValue('casey@example.com');
   fireEvent.click(screen.getByRole('button', { name: /send reset code/i }));
 
   try {
@@ -264,6 +269,7 @@ test('email sign-up creates the account with one password entry and no verificat
       phone: '',
       channel: 'email',
       remember: false,
+      isNewAccount: true,
     }));
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/register`, expect.objectContaining({
@@ -319,6 +325,7 @@ test('mobile sign-up creates the account without sending an SMS code', async () 
       phone: '+919876543210',
       channel: 'sms',
       remember: false,
+      isNewAccount: true,
     }));
     expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/register`, expect.objectContaining({
       body: JSON.stringify({
