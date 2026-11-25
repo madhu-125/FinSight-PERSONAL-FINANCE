@@ -379,6 +379,39 @@ export default function Login({ onLogin, onBackToLanding }) {
         <button className="lumi-back-button" type="button" onClick={onBackToLanding}>
           ← Back
         </button>
+        <section className="lumi-finance-hero" aria-label="FinSight personal finance overview">
+          <div className="lumi-hero-brand">
+            <span className="lumi-hero-mark" aria-hidden="true"><i /><i /><i /></span>
+            <span>Fin<span>Sight</span><sup>™</sup></span>
+          </div>
+          <p className="lumi-hero-kicker">PERSONAL FINANCE</p>
+          <div className="lumi-hero-rule" />
+          <p className="lumi-hero-motto">Plan <b>•</b> Track <b>•</b> Grow</p>
+          <h2>Take control of your money,<br /><em>build a better tomorrow.</em></h2>
+          <div className="lumi-hero-features">
+            <span><b>◔</b> Budget</span>
+            <span><b>↗</b> Track</span>
+            <span><b>▣</b> Save</span>
+            <span><b>◎</b> Achieve</span>
+          </div>
+          <div className="lumi-money-scene" aria-hidden="true">
+            <div className="lumi-rise-arrow" />
+            <div className="lumi-city-bars"><i /><i /><i /><i /><i /></div>
+            <div className="lumi-phone">
+              <div className="lumi-phone-notch" />
+              <strong>FinSight</strong>
+              <small>Total Balance</small>
+              <b>₹75,890</b>
+              <div className="lumi-phone-chart"><i /><i /><i /><i /><i /></div>
+              <small>Monthly spending</small>
+              <div className="lumi-phone-donut" />
+            </div>
+            <div className="lumi-notebook"><span>Dream big...</span><b>Plan smart.</b><i /></div>
+            <div className="lumi-pig"><span className="lumi-pig-ear" /><span className="lumi-pig-ear right" /><b>◡</b><i>•</i></div>
+            <div className="lumi-coins"><i /><i /><i /><i /><i /></div>
+            <div className="lumi-rupee-coin">₹</div>
+          </div>
+        </section>
         <section className="lumi-login-card">
           <div className="lumi-card-header">
             <span className="lumi-brand-icon">✦</span>

@@ -78,6 +78,14 @@ const SAVINGS_GOALS = [
   "Plan a trip",
   "Save for education",
 ];
+const PROFILE_CURRENCY_OPTIONS = [
+  { value: "INR", label: "INR - Indian Rupee (₹)" },
+  { value: "USD", label: "USD - US Dollar ($)" },
+  { value: "EUR", label: "EUR - Euro (€)" },
+  { value: "GBP", label: "GBP - Pound Sterling (£)" },
+  { value: "AED", label: "AED - UAE Dirham (د.إ)" },
+  { value: "JPY", label: "JPY - Japanese Yen (¥)" },
+];
 const DASHBOARD_COLORS = [
   { name: "Violet", value: "#9b7bff" },
   { name: "Mint", value: "#38d9b2" },
@@ -2106,7 +2114,7 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
         || profile.monthlyIncome === null
         || profile.monthlyIncome === undefined
         || !String(profile.occupation || "").trim()
-        || profile.currency !== "INR"
+         || profile.currency !== formData.currency
         || !Array.isArray(profile.savingsGoals)
       ) {
         throw new Error("The server returned invalid profile details.");
@@ -2158,10 +2166,21 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
             <div className="profile-setup-orbit profile-setup-orbit-one" />
             <div className="profile-setup-orbit profile-setup-orbit-two" />
             <div className="profile-setup-visual-glow" />
+             <div className="profile-setup-rise-arrow" />
+             <div className="profile-setup-wallet">
+               <span className="profile-setup-wallet-clasp">•</span>
+               <span className="profile-setup-wallet-line" />
+             </div>
+             <div className="profile-setup-cards">
+               <span>TRACK<br /><b>EXPENSES</b></span>
+               <span>GROW<br /><b>SAVINGS</b></span>
+             </div>
+             <div className="profile-setup-coin-stack"><i /><i /><i /><i /></div>
+             <div className="profile-setup-rupee-coin">₹</div>
             <div className="profile-setup-money-card">
               <span className="profile-setup-money-icon"><WalletCards size={20} /></span>
               <span className="profile-setup-money-label">YOUR MONEY, IN BALANCE</span>
-              <strong>₹ <i>•••••</i></strong>
+              <strong>₹ 8,960.00</strong>
               <span className="profile-setup-money-trend"><TrendingUp size={13} /> Growing with intention</span>
             </div>
             <div className="profile-setup-chart-card">
@@ -2311,9 +2330,11 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
                   aria-label="Currency"
                   aria-describedby="profile-setup-currency-note"
                 >
-                  <option value="INR">INR - Indian Rupee (₹)</option>
+                  {PROFILE_CURRENCY_OPTIONS.map((currency) => (
+                    <option value={currency.value} key={currency.value}>{currency.label}</option>
+                  ))}
                 </select>
-                <small id="profile-setup-currency-note">FinSight currently tracks balances in Indian rupees.</small>
+                <small id="profile-setup-currency-note">Choose the currency you use for your everyday finances.</small>
               </label>
               <fieldset className="profile-setup-goals">
                 <legend id="profile-setup-goals-label">What are you saving for? <small>(optional)</small></legend>
