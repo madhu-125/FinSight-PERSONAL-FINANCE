@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
@@ -44,6 +45,18 @@ public class UserAccount {
 
     @Column(name = "profile_address", length = 500)
     private String address;
+
+    @Column(name = "profile_monthly_income", precision = 19, scale = 2)
+    private BigDecimal monthlyIncome;
+
+    @Column(name = "profile_occupation", length = 100)
+    private String occupation;
+
+    @Column(name = "profile_currency", nullable = false, length = 3)
+    private String currency = "INR";
+
+    @Column(name = "profile_savings_goals", length = 500)
+    private String savingsGoals;
 
     @Column(name = "password_hash", length = 100)
     private String passwordHash;
@@ -103,6 +116,22 @@ public class UserAccount {
         return address;
     }
 
+    public BigDecimal getMonthlyIncome() {
+        return monthlyIncome;
+    }
+
+    public String getOccupation() {
+        return occupation;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public String getSavingsGoals() {
+        return savingsGoals;
+    }
+
     public String getPasswordHash() {
         return passwordHash;
     }
@@ -131,6 +160,26 @@ public class UserAccount {
         this.gender = gender;
         this.mobileNumber = mobileNumber;
         this.address = address;
+    }
+
+    public void updateFinancialProfile(
+        BigDecimal monthlyIncome,
+        String occupation,
+        String currency,
+        String savingsGoals
+    ) {
+        if (monthlyIncome != null) {
+            this.monthlyIncome = monthlyIncome;
+        }
+        if (occupation != null) {
+            this.occupation = occupation;
+        }
+        if (currency != null) {
+            this.currency = currency;
+        }
+        if (savingsGoals != null) {
+            this.savingsGoals = savingsGoals;
+        }
     }
 
     public void setPasswordHash(String passwordHash) {

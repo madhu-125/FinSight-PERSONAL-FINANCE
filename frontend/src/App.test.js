@@ -13,6 +13,10 @@ const completedProfile = (email = '') => ({
   gender: 'Prefer not to say',
   mobileNumber: '',
   address: '',
+  monthlyIncome: 50000,
+  occupation: 'Designer',
+  currency: 'INR',
+  savingsGoals: [],
 });
 
 jest.mock('jspdf', () => ({ jsPDF: jest.fn() }));
@@ -61,6 +65,10 @@ beforeEach(() => {
           gender: 'Prefer not to say',
           mobileNumber: '',
           address: '',
+          monthlyIncome: 50000,
+          occupation: 'Designer',
+          currency: 'INR',
+          savingsGoals: [],
         }
       : ['/api/transactions', '/api/accounts', '/api/budgets'].some((path) => url.endsWith(path))
         ? []
@@ -172,6 +180,10 @@ test('incomplete profiles must be submitted before the dashboard opens', async (
           gender: null,
           mobileNumber: null,
           address: null,
+          monthlyIncome: null,
+          occupation: null,
+          currency: 'INR',
+          savingsGoals: [],
         }),
       });
     }
@@ -192,15 +204,18 @@ test('incomplete profiles must be submitted before the dashboard opens', async (
   act(() => jest.advanceTimersByTime(500));
   fireEvent.click(screen.getByRole('button', { name: 'Complete sign in' }));
 
-  expect(await screen.findByRole('heading', { name: 'Complete your profile' })).toBeInTheDocument();
-  await screen.findByLabelText('Age');
-  expect(screen.getByLabelText('Email')).toHaveValue('fresh@example.com');
-  expect(screen.getByLabelText('Email')).toHaveAttribute('readonly');
+  expect(await screen.findByRole('heading', { name: 'Set up your profile' })).toBeInTheDocument();
+  await screen.findByLabelText(/Age/);
+  expect(screen.getByLabelText(/Email address/)).toHaveValue('fresh@example.com');
+  expect(screen.getByLabelText(/Email address/)).toHaveAttribute('readonly');
   expect(document.querySelectorAll('#profile-gender-options option')).toHaveLength(5);
   expect(screen.queryByRole('heading', { name: /welcome to finsight, fresh user/i })).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Age'), { target: { value: '34' } });
-  fireEvent.change(screen.getByLabelText('Gender'), { target: { value: 'Prefer not to say' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+  fireEvent.change(screen.getByLabelText(/^Age/), { target: { value: '34' } });
+  fireEvent.change(screen.getByLabelText(/^Gender/), { target: { value: 'Prefer not to say' } });
+  fireEvent.change(screen.getByLabelText(/^Monthly income/), { target: { value: '75000' } });
+  fireEvent.change(screen.getByLabelText(/^Occupation/), { target: { value: 'Analyst' } });
+  fireEvent.click(screen.getByLabelText('Build an emergency fund'));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue to FinSight' }));
 
   expect(await screen.findByRole('heading', { name: /welcome to finsight, fresh user/i })).toBeInTheDocument();
   expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/profile`, expect.objectContaining({
@@ -212,6 +227,10 @@ test('incomplete profiles must be submitted before the dashboard opens', async (
       gender: 'Prefer not to say',
       mobileNumber: '',
       address: '',
+      monthlyIncome: 75000,
+      occupation: 'Analyst',
+      currency: 'INR',
+      savingsGoals: ['Build an emergency fund'],
     }),
   }));
 });
@@ -307,12 +326,13 @@ test('transaction form saves entered details and updates the recent list', async
   }));
 });
 
-test('transaction history colors income, regular expenses, and high expenses distinctly', async () => {
+test('transaction categories share distinct colors with spending categories', async () => {
   const today = new Date().toISOString().slice(0, 10);
   const savedTransactions = [
     { id: 1, description: 'Salary', category: 'Income', amount: 30000, type: 'income', transactionDate: today },
     { id: 2, description: 'Groceries', category: 'Food', amount: 850, type: 'expense', transactionDate: today },
     { id: 3, description: 'Large expense', category: 'Travel', amount: 10000, type: 'expense', transactionDate: today },
+    { id: 4, description: 'Coffee', category: ' food ', amount: 120, type: 'expense', transactionDate: today },
   ];
   global.fetch.mockImplementation((url) => Promise.resolve({
     ok: true,
@@ -327,6 +347,21 @@ test('transaction history colors income, regular expenses, and high expenses dis
 
   render(<App />);
   await screen.findByText('Large expense');
+  const categoryColorFor = (description) => (
+    screen.getByText(description, { exact: true })
+      .closest('.transaction-row')
+      .querySelector('.transaction-category').style.color
+  );
+  const foodColor = categoryColorFor('Groceries');
+  const repeatedFoodColor = categoryColorFor('Coffee');
+  const travelColor = categoryColorFor('Large expense');
+  const foodLegend = [...document.querySelectorAll('.category-row')]
+    .find((row) => row.textContent.includes('Food'));
+
+  expect(repeatedFoodColor).toBe(foodColor);
+  expect(travelColor).not.toBe(foodColor);
+  expect(foodLegend.querySelector('i').style.backgroundColor).toBe(foodColor);
+
   fireEvent.click(screen.getByRole('button', { name: 'Transactions', exact: true }));
 
   expect(screen.getByText('Salary').closest('.transaction-row')).toHaveClass('transaction-green');
@@ -368,6 +403,12 @@ test('adding a starting account balance updates the dashboard total', async () =
 test('dashboard totals filter by the selected month and year', async () => {
   const now = new Date();
   const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-15`;
+  const selectedDay = new Date(`${currentDate}T00:00:00`);
+  const monday = new Date(selectedDay);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  if (selectedDay.getDay() === 1) monday.setDate(monday.getDate() + 1);
+  const weeklyOnlyDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+  const previousYear = now.getFullYear() - 1;
   global.fetch.mockImplementation((url) => Promise.resolve({
     ok: true,
     json: () => Promise.resolve(
@@ -378,8 +419,11 @@ test('dashboard totals filter by the selected month and year', async () => {
         : url.endsWith('/api/transactions')
           ? [
             { id: 1, description: 'Current income', amount: 1200, type: 'income', transactionDate: currentDate },
-            { id: 2, description: 'Current expense', amount: 400, type: 'expense', transactionDate: currentDate },
-            { id: 3, description: 'Last year income', amount: 300, type: 'income', transactionDate: '2025-03-15' },
+            { id: 2, description: 'Current expense', category: 'Food', amount: 400, type: 'expense', transactionDate: currentDate },
+            { id: 3, description: 'Weekly expense', category: 'Travel', amount: 200, type: 'expense', transactionDate: weeklyOnlyDate },
+            { id: 4, description: 'Monthly expense', category: 'Utilities', amount: 100, type: 'expense', transactionDate: `${currentDate.slice(0, 7)}-01` },
+            { id: 5, description: 'Last year income', amount: 300, type: 'income', transactionDate: `${previousYear}-03-15` },
+            { id: 6, description: 'Last year expense', category: 'Other', amount: 50, type: 'expense', transactionDate: `${previousYear}-03-15` },
           ]
           : url.endsWith('/api/accounts')
             ? [{ id: 4, name: 'Everyday', balance: 2500 }]
@@ -390,21 +434,36 @@ test('dashboard totals filter by the selected month and year', async () => {
 
   render(<App />);
   await screen.findByRole('heading', { name: /welcome to finsight, period/i });
+  const categoryRow = (name) => [...document.querySelectorAll('.category-row')]
+    .find((row) => row.querySelector('span').textContent.trim() === name);
   expect(await within(screen.getByText('Monthly Total Income').closest('.stat-card')).findByText('₹1,200.00')).toBeInTheDocument();
-  expect(await within(screen.getByText('Monthly Total Expenses').closest('.stat-card')).findByText('₹400.00')).toBeInTheDocument();
-  expect(await within(screen.getByText('Monthly Net Cash Flow').closest('.stat-card')).findByText('₹800.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Monthly Total Expenses').closest('.stat-card')).findByText('₹700.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Monthly Net Cash Flow').closest('.stat-card')).findByText('₹500.00')).toBeInTheDocument();
+  expect(screen.getByText('100% of expenses')).toBeInTheDocument();
+  expect(screen.getByText(/Your monthly spending breakdown/)).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'DAILY' } });
+  fireEvent.change(screen.getByLabelText('Day'), { target: { value: currentDate } });
+  expect(await within(screen.getByText('Daily Total Expenses').closest('.stat-card')).findByText('₹400.00')).toBeInTheDocument();
+  expect(screen.getByText(/Your daily spending breakdown/)).toBeInTheDocument();
+  expect(categoryRow('Food').textContent).toContain('100%');
+  expect(categoryRow('Travel')).toBeUndefined();
 
   fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'WEEKLY' } });
   fireEvent.change(screen.getByLabelText('Week containing'), { target: { value: currentDate } });
-  expect(await within(screen.getByText('Weekly Total Balance').closest('.stat-card')).findByText('₹3,600.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Weekly Total Expenses').closest('.stat-card')).findByText('₹600.00')).toBeInTheDocument();
+  expect(categoryRow('Food').textContent).toContain('67%');
+  expect(categoryRow('Travel').textContent).toContain('33%');
+  expect(await within(screen.getByText('Weekly Total Balance').closest('.stat-card')).findByText('₹3,250.00')).toBeInTheDocument();
   expect(await within(screen.getByText('Weekly Total Income').closest('.stat-card')).findByText('₹1,200.00')).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'YEARLY' } });
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'Year' }), { target: { value: '2025' } });
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Year' }), { target: { value: String(previousYear) } });
   expect(await within(screen.getByText('Yearly Total Income').closest('.stat-card')).findByText('₹300.00')).toBeInTheDocument();
-  expect(await within(screen.getByText('Yearly Total Expenses').closest('.stat-card')).findByText('₹0.00')).toBeInTheDocument();
-  expect(await within(screen.getByText('Yearly Total Balance').closest('.stat-card')).findByText('₹2,800.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Yearly Total Expenses').closest('.stat-card')).findByText('₹50.00')).toBeInTheDocument();
+  expect(await within(screen.getByText('Yearly Total Balance').closest('.stat-card')).findByText('₹2,750.00')).toBeInTheDocument();
   expect(screen.getByText(/Estimated period-end/)).toBeInTheDocument();
+  expect(categoryRow('Other').textContent).toContain('100%');
 });
 
 test('profile links open login history and the separate settings page', async () => {
@@ -421,6 +480,7 @@ test('profile links open login history and the separate settings page', async ()
     ),
   }));
   window.localStorage.setItem('finsight-authenticated', 'true');
+  window.localStorage.setItem('finsight-appearance:profile@example.com:theme', 'dark');
 
   render(<App />);
   await screen.findByRole('button', { name: 'Sign out' });
@@ -436,7 +496,8 @@ test('profile links open login history and the separate settings page', async ()
   expect(await screen.findByRole('heading', { name: 'Settings', level: 2 })).toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: /^Select .* dashboard color$/ })).toHaveLength(34);
   expect(screen.getByRole('checkbox', { name: 'High expense alerts' })).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Theme'), { target: { value: 'light' } });
+  expect(screen.getByLabelText('Theme')).toBeDisabled();
+  expect(document.querySelector('.app-shell')).toHaveClass('theme-light');
   fireEvent.click(screen.getByRole('button', { name: 'Select Mint dashboard color' }));
   fireEvent.click(screen.getByRole('button', { name: 'Apply dashboard color' }));
   expect(screen.getByRole('alertdialog', { name: 'Apply this dashboard color?' })).toBeInTheDocument();
@@ -637,6 +698,10 @@ test('profile details save through the API and update the signed-in greeting', a
           gender: 'Prefer not to say',
           mobileNumber: null,
           address: null,
+          monthlyIncome: 50000,
+          occupation: 'Designer',
+          currency: 'INR',
+          savingsGoals: [],
         }),
       });
     }
@@ -717,6 +782,10 @@ test('signed-in users can change their password using only new and confirm field
           gender: 'Prefer not to say',
           mobileNumber: null,
           address: null,
+          monthlyIncome: 50000,
+          occupation: 'Designer',
+          currency: 'INR',
+          savingsGoals: [],
         }),
       });
     }

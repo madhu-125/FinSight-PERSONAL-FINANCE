@@ -27,6 +27,9 @@ class OtpDeliveryServiceTest {
             "",
             "",
             "",
+            "",
+            "",
+            "",
             objectProvider(),
             true
         );
@@ -35,9 +38,12 @@ class OtpDeliveryServiceTest {
     }
 
     @Test
-    void smsOtpDeliveryIsRejected() {
+    void smsDeliveryExplainsWhenTwilioIsNotConfigured() {
         OtpDeliveryService delivery = new OtpDeliveryService(
             objectMapper,
+            "",
+            "",
+            "",
             "",
             "",
             "",
@@ -50,7 +56,10 @@ class OtpDeliveryServiceTest {
             AuthException.class,
             () -> delivery.send("sms", "+14155550123", "123456")
         );
-        assertEquals("OTP verification is available by email only.", exception.getMessage());
+        assertEquals(
+            "SMS delivery is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER on the server.",
+            exception.getMessage()
+        );
     }
 
     @Test
@@ -77,6 +86,14 @@ class OtpDeliveryServiceTest {
         delivery.send("email", "person@example.com", "123456");
 
         verify(mailSender).send(org.mockito.ArgumentMatchers.any(MimeMessage.class));
+    }
+
+    @Test
+    void twilioAuthenticationFailureExplainsWhichConfigurationToCheck() {
+        assertEquals(
+            "Twilio rejected the SMS credentials. Check the Twilio account SID and auth token.",
+            OtpDeliveryService.providerFailureMessage("SMS", 401)
+        );
     }
 
     @Test
@@ -111,6 +128,9 @@ class OtpDeliveryServiceTest {
             resendFromEmail,
             smtpHost,
             mailFrom,
+            "",
+            "",
+            "",
             mailSenderProvider,
             consoleDeliveryEnabled
         );

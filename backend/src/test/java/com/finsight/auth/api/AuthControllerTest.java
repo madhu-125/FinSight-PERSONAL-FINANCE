@@ -161,22 +161,71 @@ class AuthControllerTest {
     }
 
     @Test
-    void otpEndpointsRejectSmsVerification() throws Exception {
+    void smsOtpRegistersAndSignsInWithVerifiedSessions() throws Exception {
+        String phone = "+917337492378";
         mockMvc.perform(post("/api/auth/otp/send")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                    {"channel":"sms","phone":"7337492378"}
+                    {"channel":"sms","phone":"7337492378","flow":"signup","displayName":"Mobile User"}
                     """))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error").value("OTP verification is available by email only."));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.sent").value(true))
+            .andExpect(jsonPath("$.channel").value("sms"));
 
-        mockMvc.perform(post("/api/auth/otp/verify")
+        ArgumentCaptor<String> signupCode = ArgumentCaptor.forClass(String.class);
+        verify(delivery).send(eq("sms"), eq(phone), signupCode.capture());
+        MvcResult signup = mockMvc.perform(post("/api/auth/otp/verify")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                    {"channel":"sms","phone":"+14155550123","code":"123456"}
+                    {"channel":"sms","phone":"7337492378","flow":"signup","displayName":"Mobile User","code":"%s"}
+                    """.formatted(signupCode.getValue())))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.verified").value(true))
+            .andExpect(jsonPath("$.displayName").value("Mobile User"))
+            .andReturn();
+
+        var user = users.findByChannelAndDestination("sms", phone).orElseThrow();
+        assertEquals("Mobile User", user.getDisplayName());
+
+        reset(delivery);
+        mockMvc.perform(post("/api/auth/otp/send")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"sms","phone":"7337492378","flow":"login"}
                     """))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error").value("OTP verification is available by email only."));
+            .andExpect(status().isOk());
+
+        ArgumentCaptor<String> loginCode = ArgumentCaptor.forClass(String.class);
+        verify(delivery).send(eq("sms"), eq(phone), loginCode.capture());
+        MvcResult login = mockMvc.perform(post("/api/auth/otp/verify")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"sms","phone":"7337492378","flow":"login","code":"%s"}
+                    """.formatted(loginCode.getValue())))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.verified").value(true))
+            .andExpect(jsonPath("$.displayName").value("Mobile User"))
+            .andReturn();
+
+        mockMvc.perform(get("/api/auth/session")
+                .cookie(signup.getResponse().getCookie("finsight_session")))
+            .andExpect(jsonPath("$.authenticated").value(true))
+            .andExpect(jsonPath("$.phone").value(phone));
+        mockMvc.perform(get("/api/auth/session")
+                .cookie(login.getResponse().getCookie("finsight_session")))
+            .andExpect(jsonPath("$.authenticated").value(true))
+            .andExpect(jsonPath("$.phone").value(phone));
+    }
+
+    @Test
+    void smsLoginRequiresAnExistingAccountAndPasswordRecoveryRemainsEmailOnly() throws Exception {
+        mockMvc.perform(post("/api/auth/otp/send")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"channel":"sms","phone":"7337492378","flow":"login"}
+                    """))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("No account exists for this mobile number. Sign up first."));
 
         mockMvc.perform(post("/api/auth/password/forgot")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -337,25 +386,23 @@ class AuthControllerTest {
     }
 
     @Test
-    void passwordRegistrationAndLoginAcceptMobileWithoutOtp() throws Exception {
+    void passwordRegistrationAndLoginRejectMobileNumbers() throws Exception {
         String password = "StrongPass123!";
         mockMvc.perform(post("/api/auth/password/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"channel":"sms","phone":"7337492378","displayName":"Mobile User","password":"%s"}
                     """.formatted(password)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.phone").value("+917337492378"))
-            .andExpect(jsonPath("$.displayName").value("Mobile User"));
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Phone sign-in and registration require a verification code."));
 
         mockMvc.perform(post("/api/auth/password/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"channel":"sms","phone":"7337492378","password":"%s"}
                     """.formatted(password)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.authenticated").value(true))
-            .andExpect(jsonPath("$.phone").value("+917337492378"));
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Phone sign-in and registration require a verification code."));
 
         verify(delivery, never()).send(anyString(), anyString(), anyString());
     }
@@ -413,7 +460,11 @@ class AuthControllerTest {
                       "age":31,
                       "gender":"Prefer not to say",
                       "mobileNumber":"+14155550123",
-                      "address":"25 Example Street"
+                      "address":"25 Example Street",
+                      "monthlyIncome":82500.50,
+                      "occupation":"Product designer",
+                      "currency":"INR",
+                      "savingsGoals":["Build an emergency fund","Grow investments"]
                     }
                     """))
             .andExpect(status().isOk())
@@ -421,12 +472,21 @@ class AuthControllerTest {
             .andExpect(jsonPath("$.age").value(31))
             .andExpect(jsonPath("$.gender").value("Prefer not to say"))
             .andExpect(jsonPath("$.mobileNumber").value("+14155550123"))
-            .andExpect(jsonPath("$.address").value("25 Example Street"));
+            .andExpect(jsonPath("$.address").value("25 Example Street"))
+            .andExpect(jsonPath("$.monthlyIncome").value(82500.50))
+            .andExpect(jsonPath("$.occupation").value("Product designer"))
+            .andExpect(jsonPath("$.currency").value("INR"))
+            .andExpect(jsonPath("$.savingsGoals[0]").value("Build an emergency fund"))
+            .andExpect(jsonPath("$.savingsGoals[1]").value("Grow investments"));
         mockMvc.perform(get("/api/auth/profile").cookie(sessionCookie))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.displayName").value("Updated Name"))
             .andExpect(jsonPath("$.age").value(31))
-            .andExpect(jsonPath("$.mobileNumber").value("+14155550123"));
+            .andExpect(jsonPath("$.mobileNumber").value("+14155550123"))
+            .andExpect(jsonPath("$.monthlyIncome").value(82500.50))
+            .andExpect(jsonPath("$.occupation").value("Product designer"))
+            .andExpect(jsonPath("$.currency").value("INR"))
+            .andExpect(jsonPath("$.savingsGoals[1]").value("Grow investments"));
         mockMvc.perform(put("/api/auth/password")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""

@@ -7,5 +7,6 @@ public record OtpVerifyRequest(
     String phone,
     String code,
     String displayName,
-    String password
+    String password,
+    String flow
 ) {}

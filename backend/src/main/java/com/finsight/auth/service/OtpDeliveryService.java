@@ -12,8 +12,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.net.URLEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +38,9 @@ public class OtpDeliveryService {
     private final String resendFromEmail;
     private final String smtpHost;
     private final String mailFrom;
+    private final String twilioAccountSid;
+    private final String twilioAuthToken;
+    private final String twilioFromNumber;
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final boolean consoleDeliveryEnabled;
 
@@ -45,6 +50,9 @@ public class OtpDeliveryService {
         @Value("${finsight.resend.from-email:}") String resendFromEmail,
         @Value("${spring.mail.host:}") String smtpHost,
         @Value("${finsight.mail.from:}") String mailFrom,
+        @Value("${finsight.twilio.account-sid:}") String twilioAccountSid,
+        @Value("${finsight.twilio.auth-token:}") String twilioAuthToken,
+        @Value("${finsight.twilio.from-number:}") String twilioFromNumber,
         ObjectProvider<JavaMailSender> mailSenderProvider,
         @Value("${finsight.otp.console-delivery.enabled:false}") boolean consoleDeliveryEnabled
     ) {
@@ -53,15 +61,52 @@ public class OtpDeliveryService {
         this.resendFromEmail = resendFromEmail;
         this.smtpHost = smtpHost;
         this.mailFrom = mailFrom;
+        this.twilioAccountSid = twilioAccountSid;
+        this.twilioAuthToken = twilioAuthToken;
+        this.twilioFromNumber = twilioFromNumber;
         this.mailSenderProvider = mailSenderProvider;
         this.consoleDeliveryEnabled = consoleDeliveryEnabled;
     }
 
     public void send(String channel, String destination, String code) {
+        if ("sms".equals(channel)) {
+            sendSms(destination, code);
+            return;
+        }
         if (!"email".equals(channel)) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "OTP verification is available by email only.");
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose email or mobile number.");
         }
         sendEmail(destination, code);
+    }
+
+    private void sendSms(String phone, String code) {
+        if (twilioAccountSid.isBlank() || twilioAuthToken.isBlank() || twilioFromNumber.isBlank()) {
+            throw new AuthException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "SMS delivery is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER on the server."
+            );
+        }
+
+        String message = "Your FinSight verification code is " + code + ". It expires in 10 minutes.";
+        String form = "To=" + formEncode(phone)
+            + "&From=" + formEncode(twilioFromNumber)
+            + "&Body=" + formEncode(message);
+        String credentials = Base64.getEncoder().encodeToString(
+            (twilioAccountSid + ":" + twilioAuthToken).getBytes(StandardCharsets.UTF_8)
+        );
+        HttpRequest request = HttpRequest.newBuilder(URI.create(
+                "https://api.twilio.com/2010-04-01/Accounts/" + twilioAccountSid + "/Messages.json"
+            ))
+            .timeout(Duration.ofSeconds(15))
+            .header("Authorization", "Basic " + credentials)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString(form))
+            .build();
+        sendRequest(request, "SMS");
+    }
+
+    private String formEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private void sendEmail(String email, String code) {
@@ -152,6 +197,12 @@ public class OtpDeliveryService {
     }
 
     static String providerFailureMessage(String channel, int statusCode) {
+        if (channel.equals("SMS") && statusCode == 401) {
+            return "Twilio rejected the SMS credentials. Check the Twilio account SID and auth token.";
+        }
+        if (channel.equals("SMS") && (statusCode == 400 || statusCode == 403)) {
+            return "Twilio could not send the SMS. Check the sender number, recipient, and account permissions.";
+        }
         if (channel.equals("email") && statusCode == 403) {
             return "Resend rejected the email. Verify a sending domain and use an address from that domain in RESEND_FROM_EMAIL. The onboarding@resend.dev sender is limited to Resend testing.";
         }

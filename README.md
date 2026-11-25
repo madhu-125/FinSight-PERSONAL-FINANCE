@@ -26,7 +26,7 @@ The React frontend owns page rendering and user interactions; the Spring backend
    npm start
    ```
 
-Open `http://localhost:3000`. Sign-up and sign-in use an email address or mobile number with a password; neither requires a verification code.
+Open `http://localhost:3000`. Email sign-up and sign-in use a password. Phone sign-up and sign-in use an SMS verification code.
 
 ## Deploy to Render
 
@@ -36,12 +36,12 @@ The root `render.yaml` defines a React static site and a Spring Boot Docker web 
 2. In Render, choose **New > Blueprint**, connect `madhu-125/FinSight-PERSONAL-FINANCE`, and deploy the Blueprint from `main`.
 3. Enter the external MySQL JDBC URL, username, and password when prompted. For TiDB Cloud, use the cluster's public endpoint on port `4000` and a JDBC URL such as `jdbc:mysql://<cluster-host>:4000/<database-name>?sslMode=VERIFY_IDENTITY&enabledTLSProtocols=TLSv1.2&serverTimezone=UTC`. Set the TiDB-provided username and password in the matching Render environment variables. Ensure the named database exists and the cluster accepts connections from Render.
    - If deploying the Blueprint has already completed, add or update `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` under the API service's **Environment** settings, then redeploy. Keep credentials in Render or your local ignored `.env` file; never commit them or paste them into chat.
-4. Password-based sign-up and sign-in do not need email or SMS delivery. To enable password recovery, add `RESEND_API_KEY` and a Resend-verified `RESEND_FROM_EMAIL` for email, or Twilio credentials for mobile, to the API service's environment.
+4. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM_NUMBER` to the API service's environment to enable phone sign-up and sign-in codes. The Twilio sender must be enabled for the recipients you want to reach; trial accounts may only message verified recipient numbers. To enable password recovery, add `RESEND_API_KEY` and a Resend-verified `RESEND_FROM_EMAIL` for email.
 5. Wait for both services to deploy. The frontend build receives the API hostname from the Blueprint; the API receives the frontend hostname for CORS and OAuth redirects.
 
 The Blueprint generates `OTP_SECRET` and enables secure session cookies for HTTPS. Keep `OTP_CONSOLE_DELIVERY_ENABLED` and `DEMO_AUTH_ENABLED` set to `false` in production. Free Render services may spin down when idle, so the first request after inactivity can take longer.
 
-Email OTP delivery for password resets can use Resend with a verified sender domain or SMTP. For Gmail SMTP, use `smtp.gmail.com`, port `587`, your Gmail address, and a Google App Password (not your normal Gmail password); configured SMTP takes precedence over Resend. Password reset and OTP verification are email-only. For local-only reset testing without delivery-provider credentials, `OTP_CONSOLE_DELIVERY_ENABLED=true` logs codes in the backend console; never enable this in production.
+Phone sign-in and registration codes are sent through Twilio. Email OTP delivery for password resets can use Resend with a verified sender domain or SMTP. Resend's `onboarding@resend.dev` sender is testing-only and cannot deliver reset messages to arbitrary users. For production or multi-user use, verify your sending domain in Resend, publish its required DNS records, and set `RESEND_FROM_EMAIL` to an address on that verified domain (for example, `FinSight <no-reply@your-domain.com>`); then redeploy or restart the API. Keep `RESEND_API_KEY` private. For Gmail SMTP, use `smtp.gmail.com`, port `587`, your Gmail address, and a Google App Password (not your normal Gmail password); configured SMTP takes precedence over Resend. Password reset codes are email-only. For local-only reset testing without delivery-provider credentials, `OTP_CONSOLE_DELIVERY_ENABLED=true` logs email codes in the backend console; never enable this in production.
 
 The backend Google OAuth integration requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the root `.env`; register `http://localhost:8080/login/oauth2/code/google` as an authorized redirect URI in Google Cloud. Social sign-in buttons are currently hidden from the UI.
 
@@ -49,7 +49,7 @@ The optional Node server supports email OTP authentication but not finance data 
 
 ## Sign-in and profile
 
-Sign-up creates the account directly with an email address or mobile number and a password entered once; no contact or password confirmation is required. The account is signed in immediately after registration. Passwords must be at least 8 characters and no more than 72 UTF-8 bytes. Later sign-ins require that password. **Forgot password?** sends a one-time reset code by email; SMS verification is not available. Password recovery requires an account registered with the entered email address. Profile name, age, gender, mobile contact, and address are stored with the signed-in account; the editable profile mobile is separate from the sign-in email or phone. Photos and notification preferences remain local to the browser. Photos can be uploaded or taken as a selfie, resized, and reframed in Profile.
+Email sign-up creates the account with a password entered once; later email sign-ins require that password. Phone sign-up and sign-in send a six-digit SMS code, and the account is authenticated after the code is verified. SMS codes expire after 10 minutes, can be resent after 60 seconds, and allow five verification attempts. Email passwords must be at least 8 characters and no more than 72 UTF-8 bytes. **Forgot password?** sends a one-time reset code by email; password recovery requires an account registered with that email address. Profile name, age, gender, mobile contact, address, monthly income, occupation, currency, and selected savings goals are stored with the signed-in account. Currency is currently INR; the editable profile mobile is separate from the sign-in email or phone. Photos and notification preferences remain local to the browser. Photos can be uploaded or taken as a selfie, resized, and reframed in Profile.
 
 Budgets can be created as weekly, monthly, or fixed two-month periods. On the Budgets page, choose a period and download a PDF containing the saved budgets of that frequency.
 Transaction reports can be downloaded as a selected day, week, or month. Selfies use the browser camera when available; uploaded photos remain an alternative.

@@ -5,8 +5,14 @@ import {
   LayoutDashboard,
   ArrowLeftRight,
   Wallet,
+  WalletCards,
+  CircleDollarSign,
+  HandCoins,
+  ReceiptText,
+  PiggyBank,
   ChartNoAxesCombined,
   Target,
+  Bot,
   Sparkles,
   Settings,
   Bell,
@@ -64,6 +70,14 @@ const HIGH_EXPENSE_RATIO = 0.8;
 const LOW_CASH_FLOW_RATIO = 0.1;
 const HIGH_EXPENSE_AMOUNT = 10000;
 const APP_THEMES = ["dark", "light", "gray"];
+const SAVINGS_GOALS = [
+  "Build an emergency fund",
+  "Save for a home",
+  "Pay off debt",
+  "Grow investments",
+  "Plan a trip",
+  "Save for education",
+];
 const DASHBOARD_COLORS = [
   { name: "Violet", value: "#9b7bff" },
   { name: "Mint", value: "#38d9b2" },
@@ -100,11 +114,23 @@ const DASHBOARD_COLORS = [
   { name: "Copper", value: "#c2774a" },
   { name: "Seafoam", value: "#5de0a5" },
 ];
+const DEFAULT_DASHBOARD_COLOR = "#9b7bff";
 const CURRENCY_FORMATTER = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
 });
-const ANALYTICS_COLORS = ["#9b7bff", "#38d9b2", "#ffb86b", "#5e9cff", "#ff7f9f", "#7ed6df"];
+const ANALYTICS_COLORS = DASHBOARD_COLORS.map(({ value }) => value);
+
+function getCategoryColorMap(transactions) {
+  const categories = [...new Set(transactions.map((transaction) => (
+    (transaction.category?.trim() || "Uncategorized").toLocaleLowerCase()
+  )))].sort((left, right) => left.localeCompare(right));
+
+  return new Map(categories.map((category, index) => [
+    category,
+    ANALYTICS_COLORS[index % ANALYTICS_COLORS.length],
+  ]));
+}
 
 function getComplementaryColor(hexColor) {
   const match = /^#([0-9a-f]{6})$/i.exec(hexColor);
@@ -156,7 +182,7 @@ function getContrastingTextColor(hexColor) {
   return luminance > 0.38 ? "#171421" : "#ffffff";
 }
 
-function getAnalyticsData(transactions) {
+function getAnalyticsData(transactions, categoryColors = getCategoryColorMap(transactions)) {
   const now = new Date();
   const monthFormatter = new Intl.DateTimeFormat("en-IN", { month: "short" });
   const monthlyMap = new Map();
@@ -187,15 +213,20 @@ function getAnalyticsData(transactions) {
       expenses += amount;
       if (monthlyEntry) monthlyEntry.expenses += amount;
       const category = transaction.category?.trim() || "Uncategorized";
-      categoryTotals.set(category, (categoryTotals.get(category) || 0) + amount);
+      const categoryKey = category.toLocaleLowerCase();
+      const currentCategory = categoryTotals.get(categoryKey);
+      categoryTotals.set(categoryKey, {
+        name: currentCategory?.name || category,
+        value: (currentCategory?.value || 0) + amount,
+      });
     }
   });
 
-  const categories = [...categoryTotals.entries()]
-    .map(([name, value], index) => ({
+  const categories = [...categoryTotals.values()]
+    .map(({ name, value }) => ({
       name,
       value,
-      color: ANALYTICS_COLORS[index % ANALYTICS_COLORS.length],
+      color: categoryColors.get(name.toLocaleLowerCase()),
     }))
     .sort((left, right) => right.value - left.value);
 
@@ -205,6 +236,7 @@ function getAnalyticsData(transactions) {
     net: income - expenses,
     monthly: [...monthlyMap.values()],
     categories,
+    categoryColors,
   };
 }
 
@@ -218,7 +250,10 @@ function getDashboardPeriodRange(period, selectedDate) {
   const date = Number.isNaN(selected.getTime()) ? now : selected;
   let start;
   let end;
-  if (period === "WEEKLY") {
+  if (period === "DAILY") {
+    start = new Date(date);
+    end = new Date(date);
+  } else if (period === "WEEKLY") {
     start = new Date(date);
     start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
     end = new Date(start);
@@ -237,7 +272,9 @@ function getDashboardPeriodRange(period, selectedDate) {
   });
   const label = period === "YEARLY"
     ? String(date.getFullYear())
-    : `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
+    : period === "DAILY"
+      ? dateFormatter.format(start)
+      : `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
   return { start: dateKey(start), end: dateKey(end), label };
 }
 
@@ -580,6 +617,7 @@ function AiAssistantView({ context, language }) {
     translate(language, "assistantTopCategoryQuestion"),
     translate(language, "assistantCashFlowQuestion"),
   ];
+  const suggestionIcons = [Sparkles, ChartNoAxesCombined, CircleDollarSign, ReceiptText, WalletCards];
 
   useEffect(() => {
     const messagesElement = messagesRef.current;
@@ -599,10 +637,16 @@ function AiAssistantView({ context, language }) {
 
   return (
     <section className="assistant-page">
-      <div className="transactions-page-header">
-        <div>
+      <div className="transactions-page-header assistant-hero">
+        <div className="assistant-hero-copy">
+          <span className="assistant-hero-eyebrow"><Sparkles size={14} /> FINSIGHT AI</span>
           <h2>{translate(language, "assistant")}</h2>
           <p>{translate(language, "assistantDescription", { period: context.rangeLabel })}</p>
+        </div>
+        <div className="assistant-hero-visual" aria-hidden="true">
+          <div className="assistant-hero-halo" />
+          <div className="assistant-hero-robot"><Bot size={42} /></div>
+          <Sparkles className="assistant-hero-sparkle" size={18} />
         </div>
       </div>
       <div className="assistant-chat panel">
@@ -615,11 +659,16 @@ function AiAssistantView({ context, language }) {
           ))}
         </div>
         <div className="assistant-suggestions" aria-label="Suggested questions">
-          {suggestions.map((suggestion) => (
-            <button type="button" key={suggestion} onClick={() => askQuestion(suggestion)}>
-              {suggestion}
-            </button>
-          ))}
+          {suggestions.map((suggestion, index) => {
+            const SuggestionIcon = suggestionIcons[index] || Sparkles;
+            return (
+              <button type="button" key={suggestion} onClick={() => askQuestion(suggestion)}>
+                <span className="assistant-suggestion-icon"><SuggestionIcon size={17} /></span>
+                <span className="assistant-suggestion-label">{suggestion}</span>
+                <ArrowUpRight className="assistant-suggestion-arrow" size={15} />
+              </button>
+            );
+          })}
         </div>
         <form
           className="assistant-composer"
@@ -671,6 +720,10 @@ function ProfileView({
   const [gender, setGender] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
   const [address, setAddress] = useState("");
+  const [monthlyIncome, setMonthlyIncome] = useState("");
+  const [occupation, setOccupation] = useState("");
+  const [currency, setCurrency] = useState("INR");
+  const [savingsGoals, setSavingsGoals] = useState([]);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSavingName, setIsSavingName] = useState(false);
@@ -741,6 +794,10 @@ function ProfileView({
         setGender(profile.gender || "");
         setMobileNumber(profile.mobileNumber || "");
         setAddress(profile.address || "");
+        setMonthlyIncome(profile.monthlyIncome == null ? "" : String(profile.monthlyIncome));
+        setOccupation(profile.occupation || "");
+        setCurrency(profile.currency || "INR");
+        setSavingsGoals(Array.isArray(profile.savingsGoals) ? profile.savingsGoals : []);
         onProfileUpdated(profile);
       })
       .catch((error) => {
@@ -782,6 +839,10 @@ function ProfileView({
     setGender(userInfo.gender || "");
     setMobileNumber(userInfo.mobileNumber || "");
     setAddress(userInfo.address || "");
+    setMonthlyIncome(userInfo.monthlyIncome == null ? "" : String(userInfo.monthlyIncome));
+    setOccupation(userInfo.occupation || "");
+    setCurrency(userInfo.currency || "INR");
+    setSavingsGoals(Array.isArray(userInfo.savingsGoals) ? userInfo.savingsGoals : []);
   };
 
   const handleProfileEditClick = () => {
@@ -807,12 +868,20 @@ function ProfileView({
         gender: gender || null,
         mobileNumber: mobileNumber.trim() || null,
         address: address.trim() || null,
+        monthlyIncome: monthlyIncome.trim() ? Number(monthlyIncome) : null,
+        occupation: occupation.trim() || null,
+        currency,
+        savingsGoals,
       });
       setDisplayName(profile.displayName || "");
       setAge(profile.age == null ? "" : String(profile.age));
       setGender(profile.gender || "");
       setMobileNumber(profile.mobileNumber || "");
       setAddress(profile.address || "");
+      setMonthlyIncome(profile.monthlyIncome == null ? "" : String(profile.monthlyIncome));
+      setOccupation(profile.occupation || "");
+      setCurrency(profile.currency || "INR");
+      setSavingsGoals(Array.isArray(profile.savingsGoals) ? profile.savingsGoals : []);
       onProfileUpdated(profile);
       setIsEditingProfile(false);
       setProfileMessage("Your profile details have been updated.");
@@ -1115,38 +1184,92 @@ function ProfileView({
                   required
                 />
               </label>
-              <label className="transaction-field" htmlFor="profile-age">
-                Age
-                <input
-                  id="profile-age"
-                  type="number"
-                  min="1"
-                  max="120"
-                  value={age}
-                  onChange={(event) => setAge(event.target.value)}
-                />
-              </label>
-              <label className="transaction-field" htmlFor="profile-gender">
-                Gender
-                <select id="profile-gender" value={gender} onChange={(event) => setGender(event.target.value)}>
-                  <option value="">Select</option>
-                  <option value="Female">Female</option>
-                  <option value="Male">Male</option>
-                  <option value="Non-binary">Non-binary</option>
-                  <option value="Prefer not to say">Prefer not to say</option>
-                </select>
-              </label>
-              <label className="transaction-field" htmlFor="profile-mobile-number">
-                Mobile number
-                <input
-                  id="profile-mobile-number"
-                  type="tel"
-                  maxLength={30}
-                  value={mobileNumber}
-                  onChange={(event) => setMobileNumber(event.target.value)}
-                  autoComplete="tel"
-                />
-              </label>
+              <div className="profile-edit-row">
+                <label className="transaction-field" htmlFor="profile-age">
+                  Age
+                  <input
+                    id="profile-age"
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={age}
+                    onChange={(event) => setAge(event.target.value)}
+                  />
+                </label>
+                <label className="transaction-field" htmlFor="profile-gender">
+                  Gender
+                  <select id="profile-gender" value={gender} onChange={(event) => setGender(event.target.value)}>
+                    <option value="">Select</option>
+                    <option value="Female">Female</option>
+                    <option value="Male">Male</option>
+                    <option value="Non-binary">Non-binary</option>
+                    <option value="Prefer not to say">Prefer not to say</option>
+                  </select>
+                </label>
+              </div>
+              <div className="profile-edit-row">
+                <label className="transaction-field" htmlFor="profile-monthly-income">
+                  Monthly income (₹)
+                  <input
+                    id="profile-monthly-income"
+                    type="number"
+                    min="0"
+                    max="99999999999999999.99"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={monthlyIncome}
+                    onChange={(event) => setMonthlyIncome(event.target.value)}
+                  />
+                </label>
+                <label className="transaction-field" htmlFor="profile-occupation">
+                  Occupation
+                  <input
+                    id="profile-occupation"
+                    type="text"
+                    maxLength={100}
+                    value={occupation}
+                    onChange={(event) => setOccupation(event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="profile-edit-row">
+                <label className="transaction-field" htmlFor="profile-currency">
+                  Currency
+                  <select id="profile-currency" value={currency} onChange={(event) => setCurrency(event.target.value)}>
+                    <option value="INR">INR - Indian Rupee (₹)</option>
+                  </select>
+                </label>
+                <label className="transaction-field" htmlFor="profile-mobile-number">
+                  Mobile number
+                  <input
+                    id="profile-mobile-number"
+                    type="tel"
+                    maxLength={30}
+                    value={mobileNumber}
+                    onChange={(event) => setMobileNumber(event.target.value)}
+                    autoComplete="tel"
+                  />
+                </label>
+              </div>
+              <fieldset className="profile-edit-goals">
+                <legend>Savings goals</legend>
+                <div className="profile-edit-goal-options">
+                  {SAVINGS_GOALS.map((goal) => (
+                    <label className="profile-edit-goal-option" key={goal}>
+                      <input
+                        type="checkbox"
+                        checked={savingsGoals.includes(goal)}
+                        onChange={() => setSavingsGoals((current) => (
+                          current.includes(goal)
+                            ? current.filter((selectedGoal) => selectedGoal !== goal)
+                            : [...current, goal]
+                        ))}
+                      />
+                      <span>{goal}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <label className="transaction-field" htmlFor="profile-address">
                 Address
                 <textarea
@@ -1169,6 +1292,10 @@ function ProfileView({
                 <div><dt>Gender</dt><dd>{gender || "Not provided"}</dd></div>
                 <div><dt>Mobile number</dt><dd>{mobileNumber || "Not provided"}</dd></div>
                 <div><dt>Address</dt><dd>{address || "Not provided"}</dd></div>
+                <div><dt>Monthly income</dt><dd>{monthlyIncome ? CURRENCY_FORMATTER.format(Number(monthlyIncome)) : "Not provided"}</dd></div>
+                <div><dt>Occupation</dt><dd>{occupation || "Not provided"}</dd></div>
+                <div><dt>Currency</dt><dd>{currency}</dd></div>
+                <div><dt>Savings goals</dt><dd>{savingsGoals.length ? savingsGoals.join(", ") : "Not provided"}</dd></div>
                 <div><dt>Email</dt><dd>{userInfo.email || "Not provided"}</dd></div>
                 <div><dt>Verified sign-in phone</dt><dd>{userInfo.phone || "Not provided"}</dd></div>
               </dl>
@@ -1307,10 +1434,10 @@ function ProfileView({
               <button
                 className="profile-secondary-button"
                 type="button"
-                disabled={dashboardColorDraft === DASHBOARD_COLORS[0].value && appPreferences.dashboardColor === DASHBOARD_COLORS[0].value}
+                disabled={dashboardColorDraft === DEFAULT_DASHBOARD_COLOR && appPreferences.dashboardColor === DEFAULT_DASHBOARD_COLOR}
                 onClick={() => {
-                  setDashboardColorDraft(DASHBOARD_COLORS[0].value);
-                  onAppPreferenceChange("dashboardColor", DASHBOARD_COLORS[0].value);
+                  setDashboardColorDraft(DEFAULT_DASHBOARD_COLOR);
+                  onAppPreferenceChange("dashboardColor", DEFAULT_DASHBOARD_COLOR);
                 }}
               >
                 {translate(language, "resetColor")}
@@ -1866,6 +1993,10 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
     gender: "",
     mobileNumber: userInfo.phone || "",
     address: "",
+    monthlyIncome: "",
+    occupation: "",
+    currency: "INR",
+    savingsGoals: [],
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -1889,7 +2020,14 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
         ) {
           throw new Error("The server returned invalid profile details.");
         }
-        if (profile.age !== null && profile.age !== undefined && String(profile.gender || "").trim()) {
+        if (
+          profile.age !== null
+          && profile.age !== undefined
+          && String(profile.gender || "").trim()
+          && profile.monthlyIncome !== null
+          && profile.monthlyIncome !== undefined
+          && String(profile.occupation || "").trim()
+        ) {
           onComplete(profile);
           return;
         }
@@ -1901,6 +2039,12 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
           gender: profile.gender || "",
           mobileNumber: profile.mobileNumber || userInfo.phone || "",
           address: profile.address || "",
+          monthlyIncome: profile.monthlyIncome === null || profile.monthlyIncome === undefined
+            ? ""
+            : String(profile.monthlyIncome),
+          occupation: profile.occupation || "",
+          currency: profile.currency || "INR",
+          savingsGoals: Array.isArray(profile.savingsGoals) ? profile.savingsGoals : [],
         });
         setProfileLoaded(true);
         setIsLoading(false);
@@ -1921,6 +2065,15 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
     setFormData((current) => ({ ...current, [name]: value }));
   };
 
+  const handleGoalToggle = (goal) => {
+    setFormData((current) => ({
+      ...current,
+      savingsGoals: current.savingsGoals.includes(goal)
+        ? current.savingsGoals.filter((selectedGoal) => selectedGoal !== goal)
+        : [...current.savingsGoals, goal],
+    }));
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
@@ -1936,6 +2089,10 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
           gender: formData.gender.trim(),
           mobileNumber: formData.mobileNumber.trim(),
           address: formData.address.trim(),
+          monthlyIncome: Number(formData.monthlyIncome),
+          occupation: formData.occupation.trim(),
+          currency: formData.currency,
+          savingsGoals: formData.savingsGoals,
         }),
       });
       const profile = await parseApiResponse(response);
@@ -1946,6 +2103,11 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
         || profile.age === null
         || profile.age === undefined
         || !String(profile.gender || "").trim()
+        || profile.monthlyIncome === null
+        || profile.monthlyIncome === undefined
+        || !String(profile.occupation || "").trim()
+        || profile.currency !== "INR"
+        || !Array.isArray(profile.savingsGoals)
       ) {
         throw new Error("The server returned invalid profile details.");
       }
@@ -1959,94 +2121,271 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
 
   return (
     <main className="profile-setup-page">
-      <section className="profile-setup-card panel" aria-labelledby="profile-setup-title">
-        <div className="profile-setup-heading">
-          <div className="profile-setup-icon"><UserRound size={22} /></div>
-          <div>
-            <p className="profile-setup-eyebrow">FINANCE PROFILE</p>
-            <h1 id="profile-setup-title">Complete your profile</h1>
-            <p>Tell us a little about yourself before opening your dashboard.</p>
-          </div>
+      <header className="profile-setup-topbar">
+        <div className="profile-setup-brand">
+          <span className="profile-setup-brand-icon"><WalletCards size={21} /></span>
+          <span>
+            <strong>FinSight <i>AI</i></strong>
+            <small>PERSONAL FINANCE</small>
+          </span>
         </div>
-        {isLoading ? (
-          <p className="profile-setup-status" role="status">Loading your profile details...</p>
-        ) : !profileLoaded ? (
-          <div className="profile-setup-error-block">
-            <p className="profile-form-error" role="alert">{error}</p>
-            <button type="button" className="profile-secondary-button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
-              Try again
-            </button>
+        <div className="profile-setup-secure"><Sparkles size={15} /> A clearer view starts here</div>
+      </header>
+      <div className="profile-setup-layout">
+        <nav className="profile-setup-progress" aria-label="Profile setup progress">
+          <div className="profile-setup-progress-step is-active">
+            <span className="profile-setup-progress-number">01</span>
+            <strong>Your Profile</strong>
           </div>
-        ) : (
-          <form className="profile-setup-form" onSubmit={handleSubmit}>
-            <label className="profile-setup-field">
-              <span>Name</span>
-              <input name="displayName" type="text" autoComplete="name" value={formData.displayName} onChange={handleChange} required maxLength={80} />
-            </label>
-            <div className="profile-setup-field">
-              <label htmlFor="profile-setup-email">Email</label>
-              <input
-                id="profile-setup-email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                value={formData.email}
-                placeholder="No email address on this account"
-                readOnly
-              />
-              <small>Your sign-in email is managed by your account.</small>
+          <span className="profile-setup-progress-line" aria-hidden="true" />
+          <div className="profile-setup-progress-step">
+            <span className="profile-setup-progress-number">02</span>
+            <strong>Your Finances</strong>
+          </div>
+          <span className="profile-setup-progress-line" aria-hidden="true" />
+          <div className="profile-setup-progress-step">
+            <span className="profile-setup-progress-number">03</span>
+            <strong>Your Goals</strong>
+          </div>
+        </nav>
+        <section className="profile-setup-story" aria-label="FinSight introduction">
+          <p className="profile-setup-story-kicker"><span /> YOUR FINANCIAL STORY, IN FOCUS</p>
+          <h1>Make your money work for <span>what matters.</span></h1>
+          <p className="profile-setup-story-copy">
+            A little about you helps FinSight shape a more personal, thoughtful view of your finances.
+          </p>
+          <div className="profile-setup-visual" aria-hidden="true">
+            <div className="profile-setup-orbit profile-setup-orbit-one" />
+            <div className="profile-setup-orbit profile-setup-orbit-two" />
+            <div className="profile-setup-visual-glow" />
+            <div className="profile-setup-money-card">
+              <span className="profile-setup-money-icon"><WalletCards size={20} /></span>
+              <span className="profile-setup-money-label">YOUR MONEY, IN BALANCE</span>
+              <strong>₹ <i>•••••</i></strong>
+              <span className="profile-setup-money-trend"><TrendingUp size={13} /> Growing with intention</span>
             </div>
-            <div className="profile-setup-row">
-              <label className="profile-setup-field">
-                <span>Age</span>
-                <input name="age" type="number" min="1" max="120" value={formData.age} onChange={handleChange} required />
-              </label>
-              <label className="profile-setup-field">
-                <span>Gender</span>
-                <input
-                  name="gender"
-                  type="text"
-                  list="profile-gender-options"
-                  value={formData.gender}
+            <div className="profile-setup-chart-card">
+              <span>MONTHLY OVERVIEW</span>
+              <div className="profile-setup-chart-bars">
+                {[36, 54, 43, 74, 58, 88, 67].map((height, index) => (
+                  <i key={index} style={{ height: `${height}%` }} />
+                ))}
+              </div>
+              <div className="profile-setup-chart-labels"><span>W1</span><span>W2</span><span>W3</span><span>W4</span></div>
+            </div>
+            <div className="profile-setup-goal-card">
+              <span className="profile-setup-goal-icon"><Target size={17} /></span>
+              <span><small>ONE STEP AT A TIME</small><strong>Your goals, in reach</strong></span>
+            </div>
+          </div>
+          <p className="profile-setup-story-note"><CircleDollarSign size={17} /> Your details stay linked to your account.</p>
+        </section>
+
+        <section className="profile-setup-card panel" aria-labelledby="profile-setup-title">
+          <div className="profile-setup-heading">
+            <span className="profile-setup-heading-icon" aria-hidden="true"><UserRound size={31} /></span>
+            <div>
+              <p className="profile-setup-eyebrow">LET'S GET TO KNOW YOU</p>
+              <h2 id="profile-setup-title">Tell us about yourself</h2>
+              <p>Help us know you better for a personalized experience.</p>
+            </div>
+          </div>
+          {isLoading ? (
+            <p className="profile-setup-status" role="status">Loading your profile details...</p>
+          ) : !profileLoaded ? (
+            <div className="profile-setup-error-block">
+              <p className="profile-form-error" role="alert">{error}</p>
+              <button type="button" className="profile-secondary-button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+                Try again
+              </button>
+            </div>
+          ) : (
+            <form className="profile-setup-form" onSubmit={handleSubmit}>
+              <div className="profile-setup-row">
+                <label className="profile-setup-field" htmlFor="profile-setup-name">
+                  <span className="profile-setup-label">Full name <span className="profile-setup-required">*</span></span>
+                  <input
+                    id="profile-setup-name"
+                    name="displayName"
+                    type="text"
+                    autoComplete="name"
+                    placeholder="Your name"
+                    value={formData.displayName}
+                    onChange={handleChange}
+                    required
+                    maxLength={80}
+                  />
+                </label>
+                <label className="profile-setup-field" htmlFor="profile-setup-email">
+                  <span className="profile-setup-label">Email address</span>
+                  <input
+                    id="profile-setup-email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    value={formData.email}
+                    placeholder="No email address on this account"
+                    readOnly
+                  />
+                </label>
+              </div>
+              <div className="profile-setup-row">
+                <label className="profile-setup-field" htmlFor="profile-setup-age">
+                  <span className="profile-setup-label">Age <span className="profile-setup-required">*</span></span>
+                  <input
+                    id="profile-setup-age"
+                    name="age"
+                    type="number"
+                    min="1"
+                    max="120"
+                    placeholder="Your age"
+                    value={formData.age}
+                    onChange={handleChange}
+                    required
+                  />
+                </label>
+                <label className="profile-setup-field" htmlFor="profile-setup-gender">
+                  <span className="profile-setup-label">Gender <span className="profile-setup-required">*</span></span>
+                  <input
+                    id="profile-setup-gender"
+                    name="gender"
+                    type="text"
+                    list="profile-gender-options"
+                    placeholder="Select or enter"
+                    value={formData.gender}
+                    onChange={handleChange}
+                    required
+                    maxLength={40}
+                  />
+                  <datalist id="profile-gender-options">
+                    <option value="Female" />
+                    <option value="Male" />
+                    <option value="Non-binary" />
+                    <option value="Prefer not to say" />
+                    <option value="Other" />
+                  </datalist>
+                </label>
+              </div>
+              <div className="profile-setup-row">
+                <label className="profile-setup-field" htmlFor="profile-setup-income">
+                  <span className="profile-setup-label">Monthly income <span className="profile-setup-required">*</span></span>
+                  <span className="profile-setup-input-prefix">
+                    <i aria-hidden="true">₹</i>
+                    <input
+                      id="profile-setup-income"
+                      name="monthlyIncome"
+                      type="number"
+                      min="0"
+                      max="99999999999999999.99"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      value={formData.monthlyIncome}
+                      onChange={handleChange}
+                      required
+                    />
+                  </span>
+                </label>
+                <label className="profile-setup-field" htmlFor="profile-setup-occupation">
+                  <span className="profile-setup-label">Occupation <span className="profile-setup-required">*</span></span>
+                  <input
+                    id="profile-setup-occupation"
+                    name="occupation"
+                    type="text"
+                    autoComplete="organization-title"
+                    placeholder="e.g. Designer"
+                    value={formData.occupation}
+                    onChange={handleChange}
+                    maxLength={100}
+                    required
+                  />
+                </label>
+              </div>
+              <label className="profile-setup-field" htmlFor="profile-setup-currency">
+                <span className="profile-setup-label">Currency</span>
+                <select
+                  id="profile-setup-currency"
+                  name="currency"
+                  value={formData.currency}
                   onChange={handleChange}
-                  required
-                  maxLength={40}
-                />
-                <datalist id="profile-gender-options">
-                  <option value="Female" />
-                  <option value="Male" />
-                  <option value="Non-binary" />
-                  <option value="Prefer not to say" />
-                  <option value="Other" />
-                </datalist>
+                  aria-label="Currency"
+                  aria-describedby="profile-setup-currency-note"
+                >
+                  <option value="INR">INR - Indian Rupee (₹)</option>
+                </select>
+                <small id="profile-setup-currency-note">FinSight currently tracks balances in Indian rupees.</small>
               </label>
-            </div>
-            <label className="profile-setup-field">
-              <span>Mobile number <small>(optional)</small></span>
-              <input name="mobileNumber" type="tel" autoComplete="tel" value={formData.mobileNumber} onChange={handleChange} maxLength={30} />
-            </label>
-            <label className="profile-setup-field">
-              <span>Address <small>(optional)</small></span>
-              <textarea name="address" autoComplete="street-address" value={formData.address} onChange={handleChange} maxLength={500} rows={3} />
-            </label>
-            {error && <p className="profile-form-error" role="alert">{error}</p>}
-            <button className="profile-setup-submit" type="submit" disabled={isSaving}>
-              {isSaving ? "Saving..." : "Submit"}
+              <fieldset className="profile-setup-goals">
+                <legend id="profile-setup-goals-label">What are you saving for? <small>(optional)</small></legend>
+                <div className="profile-setup-goal-options">
+                  {SAVINGS_GOALS.map((goal) => (
+                    <label className={`profile-setup-goal-option${formData.savingsGoals.includes(goal) ? " is-selected" : ""}`} key={goal}>
+                      <input
+                        type="checkbox"
+                        checked={formData.savingsGoals.includes(goal)}
+                        onChange={() => handleGoalToggle(goal)}
+                      />
+                      <span>{goal}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <details className="profile-setup-extras">
+                <summary>Additional contact details <span>OPTIONAL</span></summary>
+                <div className="profile-setup-extras-fields">
+                  <label className="profile-setup-field" htmlFor="profile-setup-mobile">
+                    Mobile number
+                    <input
+                      id="profile-setup-mobile"
+                      name="mobileNumber"
+                      type="tel"
+                      autoComplete="tel"
+                      placeholder="Your number"
+                      value={formData.mobileNumber}
+                      onChange={handleChange}
+                      maxLength={30}
+                    />
+                  </label>
+                  <label className="profile-setup-field" htmlFor="profile-setup-address">
+                    Address
+                    <textarea
+                      id="profile-setup-address"
+                      name="address"
+                      autoComplete="street-address"
+                      placeholder="Your address"
+                      value={formData.address}
+                      onChange={handleChange}
+                      maxLength={500}
+                      rows={2}
+                    />
+                  </label>
+                </div>
+              </details>
+              {error && <p className="profile-form-error" role="alert">{error}</p>}
+              <button className="profile-setup-submit" type="submit" disabled={isSaving}>
+                {isSaving ? "Saving your profile..." : "Continue to FinSight"}
+                {!isSaving && <ArrowUpRight size={17} />}
+              </button>
+              <p className="profile-setup-privacy">Your details are saved to your account.</p>
+            </form>
+          )}
+          {logoutError && <p className="profile-form-error" role="alert">{logoutError}</p>}
+          {!isLoading && (
+            <button className="profile-setup-signout" type="button" onClick={onSignOut} disabled={isSaving}>
+              Sign out
             </button>
-          </form>
-        )}
-        {logoutError && <p className="profile-form-error" role="alert">{logoutError}</p>}
-        {!isLoading && (
-          <button className="profile-setup-signout" type="button" onClick={onSignOut} disabled={isSaving}>
-            Sign out
-          </button>
-        )}
-      </section>
+          )}
+        </section>
+      </div>
+      <footer className="profile-setup-footer">
+        <span>FinSight — your money in a clear light.</span>
+        <span>Private by design <i /> Built for your goals</span>
+      </footer>
     </main>
   );
 }
 
-function TransactionList({ transactions }) {
+function TransactionList({ transactions, categoryColors }) {
   if (transactions.length === 0) {
     return <p className="transaction-empty">No transactions yet.</p>;
   }
@@ -2059,6 +2398,8 @@ function TransactionList({ transactions }) {
 
   return transactions.map((transaction) => {
     const isHighExpense = transaction.type === "expense" && Number(transaction.amount) >= HIGH_EXPENSE_AMOUNT;
+    const category = transaction.category?.trim() || "Uncategorized";
+    const categoryColor = categoryColors.get(category.toLocaleLowerCase());
     const transactionColor = transaction.type === "income"
       ? "transaction-green"
       : isHighExpense ? "transaction-pink" : "transaction-blue";
@@ -2073,7 +2414,10 @@ function TransactionList({ transactions }) {
       </div>
       <div className="transaction-details">
         <strong>{transaction.description}</strong>
-        <span>{transaction.category}</span>
+        <span className="transaction-category" style={{ color: categoryColor }}>
+          <i aria-hidden="true" style={{ backgroundColor: categoryColor }} />
+          {category}
+        </span>
       </div>
       <span className="transaction-date">
         {dateFormatter.format(new Date(`${transaction.transactionDate}T00:00:00`))}
@@ -2497,7 +2841,7 @@ function AnalyticsView({ transactions, error }) {
               <div className="analytics-category-list">
                 {analytics.categories.map((category) => (
                   <div className="analytics-category-row" key={category.name}>
-                    <span className="analytics-category-name">
+                    <span className="analytics-category-name" style={{ color: category.color }}>
                       <i style={{ backgroundColor: category.color }} />
                       {category.name}
                     </span>
@@ -2736,7 +3080,7 @@ function App() {
   const [isProfilePhotoOpen, setIsProfilePhotoOpen] = useState(false);
   const [appPreferences, setAppPreferences] = useState({
     theme: "dark",
-    dashboardColor: DASHBOARD_COLORS[0].value,
+    dashboardColor: DEFAULT_DASHBOARD_COLOR,
     animationsEnabled: true,
   });
   const notificationAudioRef = useRef(null);
@@ -2771,11 +3115,13 @@ function App() {
     const savedTheme = window.localStorage.getItem(`${appPreferenceStorageKey}:theme`);
     const savedDashboardColor = window.localStorage.getItem(`${appPreferenceStorageKey}:dashboardColor`);
     const savedAnimations = window.localStorage.getItem(`${appPreferenceStorageKey}:animationsEnabled`);
+    const theme = APP_THEMES.includes(savedTheme) ? savedTheme : "dark";
+    window.localStorage.setItem(`${appPreferenceStorageKey}:theme`, theme);
     setAppPreferences({
-      theme: APP_THEMES.includes(savedTheme) ? savedTheme : "dark",
+      theme,
       dashboardColor: DASHBOARD_COLORS.some((color) => color.value === savedDashboardColor)
         ? savedDashboardColor
-        : DASHBOARD_COLORS[0].value,
+        : DEFAULT_DASHBOARD_COLOR,
       animationsEnabled: savedAnimations !== "false",
     });
   }, [appPreferenceStorageKey]);
@@ -3007,6 +3353,10 @@ function App() {
       gender: profile.gender || "",
       mobileNumber: profile.mobileNumber || "",
       address: profile.address || "",
+      monthlyIncome: profile.monthlyIncome ?? null,
+      occupation: profile.occupation || "",
+      currency: profile.currency || "INR",
+      savingsGoals: Array.isArray(profile.savingsGoals) ? profile.savingsGoals : [],
     }));
   }, []);
 
@@ -3183,6 +3533,10 @@ function App() {
     transaction.transactionDate >= dashboardPeriodRange.start
     && transaction.transactionDate <= dashboardPeriodRange.end
   ));
+  const dashboardPeriodAnalytics = getAnalyticsData(
+    dashboardPeriodTransactions,
+    dashboardAnalytics.categoryColors
+  );
   const periodIncome = dashboardPeriodTransactions
     .filter((transaction) => transaction.type === "income")
     .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
@@ -3199,6 +3553,7 @@ function App() {
   const currentNetCashBalance = accountBalance + netActivityThrough(todayDate);
   const periodBalance = accountBalance + netActivityThrough(balanceCutoff);
   const dashboardPeriodName = {
+    DAILY: "Daily",
     WEEKLY: "Weekly",
     MONTHLY: "Monthly",
     YEARLY: "Yearly",
@@ -3222,28 +3577,28 @@ function App() {
         : dashboardPeriodRange.end < todayDate
           ? `Estimated period-end · ${dashboardPeriodRange.label}`
           : `Balance after saved activity · ${dashboardPeriodRange.label}`,
-      icon: Wallet,
+      icon: WalletCards,
       className: "balance-card",
     },
     {
       title: `${dashboardPeriodName} Total Income`,
       value: CURRENCY_FORMATTER.format(periodIncome),
       description: `For ${dashboardPeriodRange.label}`,
-      icon: TrendingUp,
+      icon: CircleDollarSign,
       className: "income-card",
     },
     {
       title: `${dashboardPeriodName} Total Expenses`,
       value: CURRENCY_FORMATTER.format(periodExpenses),
       description: `For ${dashboardPeriodRange.label}`,
-      icon: TrendingDown,
+      icon: HandCoins,
       className: "expense-card",
     },
     {
       title: `${dashboardPeriodName} Net Cash Flow`,
       value: CURRENCY_FORMATTER.format(periodIncome - periodExpenses),
       description: `Income minus expenses · ${dashboardPeriodRange.label}`,
-      icon: Target,
+      icon: PiggyBank,
       className: "savings-card",
     },
   ];
@@ -3677,26 +4032,41 @@ function App() {
                   value={dashboardPeriod}
                   onChange={(event) => setDashboardPeriod(event.target.value)}
                 >
+                  <option value="DAILY">{translate(language, "daily")}</option>
                   <option value="WEEKLY">{translate(language, "weekly")}</option>
                   <option value="MONTHLY">{translate(language, "monthly")}</option>
                   <option value="YEARLY">{translate(language, "yearly")}</option>
                 </select>
                 <label className="visually-hidden" htmlFor="dashboard-period-date">
-                  {dashboardPeriod === "WEEKLY" ? "Week containing" : dashboardPeriod === "MONTHLY" ? "Month" : "Year"}
+                  {dashboardPeriod === "DAILY"
+                    ? "Day"
+                    : dashboardPeriod === "WEEKLY"
+                      ? "Week containing"
+                      : dashboardPeriod === "MONTHLY"
+                        ? "Month"
+                        : "Year"}
                 </label>
                 <input
                   id="dashboard-period-date"
-                  aria-label={dashboardPeriod === "WEEKLY" ? "Week containing" : dashboardPeriod === "MONTHLY" ? "Month" : "Year"}
-                  type={dashboardPeriod === "WEEKLY" ? "date" : dashboardPeriod === "MONTHLY" ? "month" : "number"}
+                  aria-label={dashboardPeriod === "DAILY"
+                    ? "Day"
+                    : dashboardPeriod === "WEEKLY"
+                      ? "Week containing"
+                      : dashboardPeriod === "MONTHLY"
+                        ? "Month"
+                        : "Year"}
+                  type={dashboardPeriod === "DAILY" || dashboardPeriod === "WEEKLY"
+                    ? "date"
+                    : dashboardPeriod === "MONTHLY" ? "month" : "number"}
                   min={dashboardPeriod === "YEARLY" ? "1970" : undefined}
                   max={dashboardPeriod === "YEARLY" ? String(new Date().getFullYear() + 1) : undefined}
-                  value={dashboardPeriod === "WEEKLY"
+                  value={dashboardPeriod === "DAILY" || dashboardPeriod === "WEEKLY"
                     ? dashboardPeriodDate
                     : dashboardPeriod === "MONTHLY"
                       ? dashboardPeriodDate.slice(0, 7)
                       : dashboardPeriodDate.slice(0, 4)}
                   onChange={(event) => setDashboardPeriodDate(
-                    dashboardPeriod === "WEEKLY"
+                    dashboardPeriod === "DAILY" || dashboardPeriod === "WEEKLY"
                       ? event.target.value
                       : dashboardPeriod === "MONTHLY"
                         ? `${event.target.value}-01`
@@ -3790,16 +4160,18 @@ function App() {
                 <div className="panel-header">
                   <div>
                     <h3>Spending Categories</h3>
-                    <p>Your saved expenses by category</p>
+                    <p>
+                      Your {dashboardPeriodName.toLocaleLowerCase()} spending breakdown · {dashboardPeriodRange.label}
+                    </p>
                   </div>
                 </div>
 
-                {dashboardAnalytics.categories.length > 0 ? (
+                {dashboardPeriodAnalytics.categories.length > 0 ? (
                   <>
                     <div className="donut-container">
                       <React.Suspense fallback={<div className="chart-loading-placeholder" aria-hidden="true" />}>
                         <SpendingCategoryChart
-                          data={dashboardAnalytics.categories}
+                          data={dashboardPeriodAnalytics.categories}
                           innerRadius={65}
                           outerRadius={90}
                           paddingAngle={5}
@@ -3814,24 +4186,28 @@ function App() {
                       </React.Suspense>
                       <div className="donut-center">
                         <span>Total Spent</span>
-                        <strong>{CURRENCY_FORMATTER.format(dashboardAnalytics.expenses)}</strong>
+                        <strong>{CURRENCY_FORMATTER.format(dashboardPeriodAnalytics.expenses)}</strong>
+                        <small>100% of expenses</small>
                       </div>
                     </div>
 
                     <div className="category-legend">
-                      {dashboardAnalytics.categories.slice(0, 4).map((item) => (
+                      {dashboardPeriodAnalytics.categories.map((item) => (
                         <div className="category-row" key={item.name}>
-                          <span>
+                          <span style={{ color: item.color }}>
                             <i style={{ background: item.color }}></i>
                             {item.name}
                           </span>
-                          <strong>{Math.round((item.value / dashboardAnalytics.expenses) * 100)}%</strong>
+                          <strong>
+                            {Math.round((item.value / dashboardPeriodAnalytics.expenses) * 100)}%
+                            <small>{CURRENCY_FORMATTER.format(item.value)}</small>
+                          </strong>
                         </div>
                       ))}
                     </div>
                   </>
                 ) : (
-                  <p className="analytics-empty">Add an expense to see your spending categories.</p>
+                  <p className="analytics-empty">No expenses recorded for the selected period.</p>
                 )}
               </div>
             </section>
@@ -3851,7 +4227,10 @@ function App() {
 
                 {transactionError && <p className="transaction-form-error" role="alert">{transactionError}</p>}
                 <div className="transaction-list">
-                  <TransactionList transactions={transactions.slice(0, 5)} />
+                  <TransactionList
+                    transactions={transactions.slice(0, 5)}
+                    categoryColors={dashboardAnalytics.categoryColors}
+                  />
                 </div>
               </div>
 
@@ -3962,7 +4341,10 @@ function App() {
             {transactionPdfError && <p className="transaction-form-error" role="alert">{transactionPdfError}</p>}
             {resetTransactionsError && <p className="transaction-form-error" role="alert">{resetTransactionsError}</p>}
             <div className="transaction-list">
-              <TransactionList transactions={transactions} />
+              <TransactionList
+                transactions={transactions}
+                categoryColors={dashboardAnalytics.categoryColors}
+              />
             </div>
           </section>
         ) : activePage === "Accounts" ? (

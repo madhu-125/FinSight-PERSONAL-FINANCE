@@ -58,7 +58,7 @@ test('login displays the sign-in form without a lamp', () => {
   requestAnimationFrame.mockRestore();
 });
 
-test('mobile sign-in verifies the password without sending an OTP', async () => {
+test('mobile sign-in sends and verifies an SMS code before logging in', async () => {
   const canvasContext = {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
@@ -70,18 +70,25 @@ test('mobile sign-in verifies the password without sending an OTP', async () => 
   const requestAnimationFrame = jest.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
   const previousFetch = global.fetch;
   const onLogin = jest.fn();
-  global.fetch = jest.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ displayName: 'Casey' }),
-  });
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ sent: true, resendAfterSeconds: 60 }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ displayName: 'Casey' }),
+    });
 
   const { unmount } = render(<Login onLogin={onLogin} />);
   fireEvent.click(screen.getByRole('button', { name: 'Mobile' }));
   fireEvent.change(screen.getByLabelText('Mobile phone number'), { target: { value: '9876543210' } });
-  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret-password' } });
-  fireEvent.submit(screen.getByLabelText('Password').closest('form'));
+  fireEvent.click(screen.getByRole('button', { name: /send verification code/i }));
 
   try {
+    expect(await screen.findByLabelText('SMS verification code')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('SMS verification code'), { target: { value: '456123' } });
+    fireEvent.click(screen.getByRole('button', { name: /verify code & continue/i }));
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith({
       name: 'Casey',
       email: '',
@@ -90,12 +97,16 @@ test('mobile sign-in verifies the password without sending an OTP', async () => 
       remember: false,
       isNewAccount: false,
     }));
-    expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/login`, expect.objectContaining({
+    expect(global.fetch).toHaveBeenNthCalledWith(1, `${API_BASE_URL}/api/auth/otp/send`, expect.objectContaining({
       method: 'POST',
       credentials: 'include',
-      body: JSON.stringify({ channel: 'sms', phone: '+919876543210', password: 'secret-password' }),
+      body: JSON.stringify({ channel: 'sms', phone: '+919876543210', flow: 'login' }),
     }));
-    expect(global.fetch).not.toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/otp/send`, expect.anything());
+    expect(global.fetch).toHaveBeenNthCalledWith(2, `${API_BASE_URL}/api/auth/otp/verify`, expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ channel: 'sms', phone: '+919876543210', code: '456123', flow: 'login' }),
+    }));
   } finally {
     unmount();
     getContext.mockRestore();
@@ -166,7 +177,6 @@ test('password reset requests a code and submits a matching new password', async
 
   const { unmount } = render(<Login onLogin={jest.fn()} />);
   fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'casey@example.com' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Mobile' }));
   fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
   expect(screen.queryByRole('button', { name: 'Mobile' })).not.toBeInTheDocument();
   expect(screen.getByLabelText('Email Address')).toHaveValue('casey@example.com');
@@ -238,7 +248,7 @@ test('email reset setup errors explain the missing provider without exposing ser
   }
 });
 
-test('email sign-up creates the account with one password entry and no verification code', async () => {
+test('email sign-up requires matching passwords and creates the account without an email code', async () => {
   const canvasContext = {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
@@ -260,9 +270,17 @@ test('email sign-up creates the account with one password entry and no verificat
   fireEvent.change(screen.getByLabelText('Full Name'), { target: { value: 'Casey Jones' } });
   fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'casey@example.com' } });
   fireEvent.change(screen.getByLabelText('Create password'), { target: { value: 'secure-password' } });
+  const confirmPassword = screen.getByLabelText('Confirm password');
+  expect(confirmPassword).toBeRequired();
+  fireEvent.change(confirmPassword, { target: { value: 'different-password' } });
   fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
   try {
+    expect(await screen.findByRole('alert')).toHaveTextContent('Passwords do not match.');
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    fireEvent.change(confirmPassword, { target: { value: 'secure-password' } });
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith({
       name: 'Casey Jones',
       email: 'casey@example.com',
@@ -283,8 +301,8 @@ test('email sign-up creates the account with one password entry and no verificat
       }),
     }));
     expect(screen.queryByLabelText('Verification code')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Confirm password')).not.toBeInTheDocument();
-    expect(screen.getByText(/no verification code is required/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Confirm password')).toHaveValue('secure-password');
+    expect(screen.getByText(/create an account with your email and password/i)).toBeInTheDocument();
   } finally {
     unmount();
     getContext.mockRestore();
@@ -293,7 +311,7 @@ test('email sign-up creates the account with one password entry and no verificat
   }
 });
 
-test('mobile sign-up creates the account without sending an SMS code', async () => {
+test('mobile sign-up verifies an SMS code before creating the account', async () => {
   const canvasContext = {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
@@ -305,20 +323,27 @@ test('mobile sign-up creates the account without sending an SMS code', async () 
   const requestAnimationFrame = jest.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
   const previousFetch = global.fetch;
   const onLogin = jest.fn();
-  global.fetch = jest.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ displayName: 'Casey Jones' }),
-  });
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ sent: true, resendAfterSeconds: 60 }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ displayName: 'Casey Jones' }),
+    });
 
   const { unmount } = render(<Login onLogin={onLogin} />);
   fireEvent.click(screen.getByRole('button', { name: 'Sign Up' }));
   fireEvent.click(screen.getByRole('button', { name: 'Mobile' }));
   fireEvent.change(screen.getByLabelText('Full Name'), { target: { value: 'Casey Jones' } });
   fireEvent.change(screen.getByLabelText('Mobile phone number'), { target: { value: '9876543210' } });
-  fireEvent.change(screen.getByLabelText('Create password'), { target: { value: 'secure-password' } });
-  fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+  fireEvent.click(screen.getByRole('button', { name: /send verification code/i }));
 
   try {
+    expect(await screen.findByLabelText('SMS verification code')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('SMS verification code'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /verify code & continue/i }));
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith({
       name: 'Casey Jones',
       email: '',
@@ -327,16 +352,24 @@ test('mobile sign-up creates the account without sending an SMS code', async () 
       remember: false,
       isNewAccount: true,
     }));
-    expect(global.fetch).toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/password/register`, expect.objectContaining({
+    expect(global.fetch).toHaveBeenNthCalledWith(1, `${API_BASE_URL}/api/auth/otp/send`, expect.objectContaining({
       body: JSON.stringify({
         channel: 'sms',
         phone: '+919876543210',
+        flow: 'signup',
         displayName: 'Casey Jones',
-        password: 'secure-password',
       }),
     }));
-    expect(screen.queryByLabelText('Confirm password')).not.toBeInTheDocument();
-    expect(global.fetch).not.toHaveBeenCalledWith(`${API_BASE_URL}/api/auth/otp/send`, expect.anything());
+    expect(global.fetch).toHaveBeenNthCalledWith(2, `${API_BASE_URL}/api/auth/otp/verify`, expect.objectContaining({
+      body: JSON.stringify({
+        channel: 'sms',
+        phone: '+919876543210',
+        code: '123456',
+        flow: 'signup',
+        displayName: 'Casey Jones',
+      }),
+    }));
+    expect(screen.queryByLabelText('Create password')).not.toBeInTheDocument();
   } finally {
     unmount();
     getContext.mockRestore();

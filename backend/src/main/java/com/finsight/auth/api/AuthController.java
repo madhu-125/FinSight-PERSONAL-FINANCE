@@ -143,6 +143,10 @@ public class AuthController {
         body.put("gender", profile.gender());
         body.put("mobileNumber", profile.mobileNumber());
         body.put("address", profile.address());
+        body.put("monthlyIncome", profile.monthlyIncome());
+        body.put("occupation", profile.occupation());
+        body.put("currency", profile.currency());
+        body.put("savingsGoals", profile.savingsGoals());
         return body;
     }
 

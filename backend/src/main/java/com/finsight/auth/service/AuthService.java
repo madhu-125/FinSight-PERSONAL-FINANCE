@@ -20,6 +20,8 @@ import com.finsight.auth.repository.FinanceTransactionRepository;
 import com.finsight.auth.repository.MonthlyBudgetRepository;
 import com.finsight.auth.repository.OtpChallengeRepository;
 import com.finsight.auth.repository.UserAccountRepository;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -27,9 +29,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +49,14 @@ public class AuthService {
     private static final Duration SESSION_LIFETIME = Duration.ofDays(365);
     private static final int OTP_MAX_ATTEMPTS = 5;
     private static final int PASSWORD_MAX_BYTES = 72;
+    private static final Set<String> SAVINGS_GOALS = Set.of(
+        "Build an emergency fund",
+        "Save for a home",
+        "Pay off debt",
+        "Grow investments",
+        "Plan a trip",
+        "Save for education"
+    );
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OtpChallengeRepository challenges;
@@ -89,8 +101,34 @@ public class AuthService {
 
     @Transactional(noRollbackFor = AuthException.class)
     public OtpSent sendOtp(OtpSendRequest request) {
-        Recipient recipient = resolveEmailOtpRecipient(request.channel(), request.email());
-        return sendOtp(recipient, challengeKey(recipient.channel(), recipient.destination()));
+        if (request == null) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter an email or mobile number.");
+        }
+        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        String key = challengeKey(recipient.channel(), recipient.destination());
+        if (recipient.channel().equals("sms")) {
+            String flow = normalizeOtpFlow(request.flow());
+            String displayName = normalizeDisplayName(request.displayName());
+            Optional<UserAccount> existing = users.findByChannelAndDestination(
+                recipient.channel(),
+                recipient.destination()
+            );
+            if (flow.equals("signup")) {
+                if (displayName == null) {
+                    throw new AuthException(HttpStatus.BAD_REQUEST, "Enter your name to create an account.");
+                }
+                if (existing.isPresent()) {
+                    throw new AuthException(
+                        HttpStatus.CONFLICT,
+                        "An account with this mobile number already exists. Sign in instead."
+                    );
+                }
+            } else if (existing.isEmpty()) {
+                throw new AuthException(HttpStatus.NOT_FOUND, "No account exists for this mobile number. Sign up first.");
+            }
+            key = smsChallengeKey(flow, recipient);
+        }
+        return sendOtp(recipient, key);
     }
 
     @Transactional(noRollbackFor = AuthException.class)
@@ -134,12 +172,39 @@ public class AuthService {
 
     @Transactional(noRollbackFor = AuthException.class)
     public LoginResult verifyOtp(OtpVerifyRequest request) {
-        Recipient recipient = resolveEmailOtpRecipient(request.channel(), request.email());
+        if (request == null) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter the verification code.");
+        }
+        Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
         String displayName = normalizeDisplayName(request.displayName());
+        String flow = null;
+        String key = challengeKey(recipient.channel(), recipient.destination());
+        if (recipient.channel().equals("sms")) {
+            flow = normalizeOtpFlow(request.flow());
+            if (flow.equals("signup") && displayName == null) {
+                throw new AuthException(HttpStatus.BAD_REQUEST, "Enter your name to create an account.");
+            }
+            key = smsChallengeKey(flow, recipient);
+        }
         String password = request.password() == null || request.password().isBlank()
             ? null
             : validateNewPassword(request.password());
-        verifyAndConsumeOtp(challengeKey(recipient.channel(), recipient.destination()), request.code());
+        verifyAndConsumeOtp(key, request.code());
+        if (recipient.channel().equals("sms")) {
+            Optional<UserAccount> existing = users.findByChannelAndDestination(
+                recipient.channel(),
+                recipient.destination()
+            );
+            if (flow.equals("signup") && existing.isPresent()) {
+                throw new AuthException(
+                    HttpStatus.CONFLICT,
+                    "An account with this mobile number already exists. Sign in instead."
+                );
+            }
+            if (flow.equals("login") && existing.isEmpty()) {
+                throw new AuthException(HttpStatus.NOT_FOUND, "No account exists for this mobile number. Sign up first.");
+            }
+        }
         return createLoginSession(recipient, displayName, Instant.now(), password);
     }
 
@@ -164,6 +229,7 @@ public class AuthService {
             throw new AuthException(HttpStatus.BAD_REQUEST, "Account details are required.");
         }
         Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        rejectSmsPasswordAuth(recipient);
         String displayName = normalizeDisplayName(request.displayName());
         if (displayName == null) {
             throw new AuthException(HttpStatus.BAD_REQUEST, "Enter a display name.");
@@ -190,6 +256,7 @@ public class AuthService {
     @Transactional(noRollbackFor = AuthException.class)
     public LoginResult passwordLogin(PasswordLoginRequest request) {
         Recipient recipient = resolveRecipient(request.channel(), request.email(), request.phone());
+        rejectSmsPasswordAuth(recipient);
         String password = request.password() == null ? "" : request.password();
         Optional<UserAccount> candidate = users.findByChannelAndDestination(recipient.channel(), recipient.destination());
         Instant now = Instant.now();
@@ -262,10 +329,50 @@ public class AuthService {
             throw new AuthException(HttpStatus.BAD_REQUEST, "Enter a valid mobile number.");
         }
         String address = normalizeOptionalProfileText(request.address(), 500, "Address");
+        BigDecimal monthlyIncome = normalizeMonthlyIncome(request.monthlyIncome());
+        String occupation = normalizeOptionalProfileText(request.occupation(), 100, "Occupation");
+        String currency = normalizeOptionalProfileText(request.currency(), 3, "Currency");
+        if (currency != null && !currency.equals("INR")) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Only INR is currently supported.");
+        }
+        String savingsGoals = request.savingsGoals() == null
+            ? null
+            : normalizeSavingsGoals(request.savingsGoals());
         user.updateDisplayName(displayName);
         user.updateProfile(age, gender, mobileNumber, address);
+        user.updateFinancialProfile(monthlyIncome, occupation, currency, savingsGoals);
         users.save(user);
         return profileInfo(user);
+    }
+
+    private BigDecimal normalizeMonthlyIncome(BigDecimal monthlyIncome) {
+        if (monthlyIncome == null) {
+            return null;
+        }
+        BigDecimal normalized;
+        try {
+            normalized = monthlyIncome.setScale(2, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException exception) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Monthly income can have no more than 2 decimal places.");
+        }
+        if (normalized.signum() < 0 || normalized.precision() > 19) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Enter a valid monthly income in INR.");
+        }
+        return normalized;
+    }
+
+    private String normalizeSavingsGoals(List<String> savingsGoals) {
+        if (savingsGoals.size() > SAVINGS_GOALS.size()) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Select up to 6 savings goals.");
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String goal : savingsGoals) {
+            if (goal == null || !SAVINGS_GOALS.contains(goal)) {
+                throw new AuthException(HttpStatus.BAD_REQUEST, "Choose savings goals from the available options.");
+            }
+            normalized.add(goal);
+        }
+        return String.join("|", normalized);
     }
 
     private String normalizeOptionalProfileText(String value, int maxLength, String label) {
@@ -287,7 +394,13 @@ public class AuthService {
             user.getAge(),
             user.getGender(),
             user.getMobileNumber(),
-            user.getAddress()
+            user.getAddress(),
+            user.getMonthlyIncome(),
+            user.getOccupation(),
+            user.getCurrency(),
+            user.getSavingsGoals() == null || user.getSavingsGoals().isBlank()
+                ? List.of()
+                : List.of(user.getSavingsGoals().split("\\|"))
         );
     }
 
@@ -442,6 +555,27 @@ public class AuthService {
         return resolveRecipient("email", emailValue, null);
     }
 
+    private void rejectSmsPasswordAuth(Recipient recipient) {
+        if (recipient.channel().equals("sms")) {
+            throw new AuthException(
+                HttpStatus.BAD_REQUEST,
+                "Phone sign-in and registration require a verification code."
+            );
+        }
+    }
+
+    private String normalizeOtpFlow(String flowValue) {
+        String flow = flowValue == null ? "" : flowValue.trim().toLowerCase(Locale.ROOT);
+        if (!flow.equals("login") && !flow.equals("signup")) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Choose sign in or sign up before requesting a code.");
+        }
+        return flow;
+    }
+
+    private String smsChallengeKey(String flow, Recipient recipient) {
+        return "s:" + flow + ":" + challengeKey(recipient.channel(), recipient.destination());
+    }
+
     private Recipient resolveRecipient(String channelValue, String emailValue, String phoneValue) {
         String channel = channelValue == null ? "email" : channelValue.trim().toLowerCase(Locale.ROOT);
         if (!channel.equals("email") && !channel.equals("sms")) {
@@ -589,7 +723,11 @@ public class AuthService {
         Integer age,
         String gender,
         String mobileNumber,
-        String address
+        String address,
+        BigDecimal monthlyIncome,
+        String occupation,
+        String currency,
+        List<String> savingsGoals
     ) {}
 
     public record AuthHistoryEntry(String eventType, Instant occurredAt) {}

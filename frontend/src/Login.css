@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600&display=swap');
 
 .lumi-login {
-  --lumi-bg: #080b0a;
+  --lumi-bg: #050612;
   --lumi-green: #c6f7dc;
   --lumi-muted: #87918c;
   position: fixed;
@@ -9,7 +9,11 @@
   min-height: 100vh;
   overflow: auto;
   isolation: isolate;
-  background: radial-gradient(ellipse at 30% 40%, #14201b 0%, transparent 45%), radial-gradient(ellipse at 75% 70%, #111c18 0%, transparent 40%), var(--lumi-bg);
+  background-color: var(--lumi-bg);
+  background-image: linear-gradient(115deg, rgba(5,6,18,.52), rgba(5,6,18,.28)), url('./assets/finsight-login-background.png');
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
   color: #f1f4f1;
   font-family: 'DM Sans', sans-serif;
   z-index: 100;
@@ -19,7 +23,7 @@
 .lumi-login button, .lumi-login input { font: inherit; }
 .lumi-login button { cursor: pointer; }
 .lumi-particles { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
-.lumi-scene { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 50px 8%; z-index: 1; }
+.lumi-scene { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 36px 8%; z-index: 1; }
 .lumi-back-button { position: absolute; top: 28px; left: 8%; z-index: 2; border: 0; padding: 9px 13px; border-radius: 8px; background: rgba(255,255,255,.06); color: #a7b3ab; font-size: 11px; transition: background .2s, color .2s; }
 .lumi-back-button:hover { background: rgba(255,255,255,.11); color: var(--lumi-green); }
 .lumi-lamp-area { position: absolute; left: 8%; top: 50%; transform: translateY(-50%); width: 380px; height: 550px; }
@@ -48,14 +52,14 @@
 .lumi-login-card {
   position: relative;
   isolation: isolate;
-  width: 420px;
+  width: min(390px, 100%);
   margin: 0 auto;
   background: linear-gradient(145deg, rgba(222,255,235,.12), rgba(16,22,19,.46) 42%, rgba(10,17,13,.58));
   backdrop-filter: blur(18px) saturate(165%);
   -webkit-backdrop-filter: blur(18px) saturate(165%);
   border: 1px solid rgba(198,247,220,.34);
   border-radius: 24px;
-  padding: 35px;
+  padding: 27px;
   box-shadow: 0 32px 85px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(198,247,220,.1);
   transform-style: preserve-3d;
   transition: transform .35s ease, box-shadow .35s ease;
@@ -73,19 +77,19 @@
   transform: perspective(1100px) rotateY(-2deg) rotateX(1deg) translateY(-4px);
   box-shadow: 0 40px 100px rgba(0,0,0,.58), inset 0 1px 0 rgba(255,255,255,.24), inset 0 -1px 0 rgba(198,247,220,.14);
 }
-.lumi-card-header { text-align: center; margin-bottom: 28px; }
+.lumi-card-header { text-align: center; margin-bottom: 18px; }
 .lumi-brand-icon { color: var(--lumi-green); font-size: 22px; }
-.lumi-brand { color: var(--lumi-green); letter-spacing: 5px; font-size: 11px; margin-top: 7px; }
-.lumi-card-header h1 { font-family: 'Playfair Display', serif; font-size: 32px; font-weight: 500; margin: 20px 0 0; }
-.lumi-subtitle { color: var(--lumi-muted); font-size: 13px; margin-top: 8px; }
-.lumi-tabs { display: flex; background: #090d0b; padding: 5px; border-radius: 10px; margin-bottom: 24px; }
-.lumi-channel-tabs { margin-top: -10px; margin-bottom: 20px; }
-.lumi-tab { flex: 1; padding: 11px; color: #7c8781; background: transparent; border: none; border-radius: 7px; font-size: 13px; transition: .3s; }
+.lumi-brand { color: var(--lumi-green); letter-spacing: 4px; font-size: 10px; margin-top: 5px; }
+.lumi-card-header h1 { font-family: 'Playfair Display', serif; font-size: 29px; font-weight: 500; margin: 12px 0 0; }
+.lumi-subtitle { color: var(--lumi-muted); font-size: 12px; line-height: 1.45; margin-top: 6px; }
+.lumi-tabs { display: flex; background: #090d0b; padding: 4px; border-radius: 10px; margin-bottom: 16px; }
+.lumi-channel-tabs { margin-top: -8px; margin-bottom: 14px; }
+.lumi-tab { flex: 1; padding: 9px; color: #7c8781; background: transparent; border: none; border-radius: 7px; font-size: 12px; transition: .3s; }
 .lumi-tab.active { color: #eafff0; background: #25332b; }
-.lumi-input-group { margin-bottom: 18px; }
-.lumi-input-group label { display: block; color: #c5cec8; font-size: 12px; margin-bottom: 9px; }
-.lumi-input-help { margin-top: 8px; color: #87918c; font-size: 11px; line-height: 1.5; }
-.lumi-input-group input { width: 100%; background: #0a0f0c; border: 1px solid #28312b; border-radius: 10px; padding: 14px; color: white; outline: none; font-size: 13px; transition: .3s; }
+.lumi-input-group { margin-bottom: 12px; }
+.lumi-input-group label { display: block; color: #c5cec8; font-size: 11px; margin-bottom: 6px; }
+.lumi-input-help { margin-top: 6px; color: #87918c; font-size: 10px; line-height: 1.45; }
+.lumi-input-group input { width: 100%; min-height: 40px; background: #0a0f0c; border: 1px solid #28312b; border-radius: 9px; padding: 10px 12px; color: white; outline: none; font-size: 12px; transition: .3s; }
 .lumi-input-group input:focus { border-color: #8ae6b1; box-shadow: 0 0 0 3px rgba(138,230,177,.08); }
 .lumi-input-group input::placeholder { color: #55605a; }
 .lumi-phone-input { display: flex; align-items: center; background: #0a0f0c; border: 1px solid #28312b; border-radius: 10px; }
@@ -96,41 +100,41 @@
 .lumi-password-box { position: relative; }
 .lumi-password-box input { padding-right: 65px; }
 .lumi-show-password { position: absolute; right: 13px; top: 50%; transform: translateY(-50%); color: var(--lumi-green); background: transparent; border: none; font-size: 10px; letter-spacing: 1px; }
-.lumi-form-options { display: flex; align-items: center; justify-content: space-between; margin: 5px 0 22px; font-size: 11px; }
+.lumi-form-options { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 14px; font-size: 10px; }
 .lumi-remember { display: flex; align-items: center; gap: 6px; color: #a5afa9; }
 .lumi-remember input { accent-color: #b5f5ce; }
 .lumi-text-link { border: 0; background: none; color: var(--lumi-green); font-size: 11px; }
 .lumi-text-link:disabled { cursor: not-allowed; opacity: .5; }
-.lumi-back-to-signin { display: block; margin: 18px auto 0; }
-.lumi-auth-error { margin: 0 0 15px; color: #ff9a9a; font-size: 12px; line-height: 1.5; }
-.lumi-otp-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; }
-.lumi-submit-btn { width: 100%; padding: 15px; border: none; border-radius: 10px; background: linear-gradient(110deg, #c3f6d6, #8debb6); color: #13241a; font-weight: 700; font-size: 13px; transition: .3s; }
+.lumi-back-to-signin { display: block; margin: 12px auto 0; }
+.lumi-auth-error { margin: 0 0 10px; color: #ff9a9a; font-size: 11px; line-height: 1.45; }
+.lumi-otp-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.lumi-submit-btn { width: 100%; min-height: 42px; padding: 11px; border: none; border-radius: 9px; background: linear-gradient(110deg, #c3f6d6, #8debb6); color: #13241a; font-weight: 700; font-size: 12px; transition: .3s; }
 .lumi-submit-btn:disabled { cursor: not-allowed; opacity: .6; }
 .lumi-submit-btn span { float: right; font-size: 18px; }
 .lumi-submit-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(129,255,181,.18); }
-.lumi-divider { display: flex; align-items: center; gap: 15px; margin: 25px 0; color: #66716a; font-size: 9px; letter-spacing: 2px; }
+.lumi-divider { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: #66716a; font-size: 8px; letter-spacing: 2px; }
 .lumi-divider::before, .lumi-divider::after { content: ''; height: 1px; flex: 1; background: #29312c; }
 .lumi-social-buttons { display: flex; gap: 10px; }
-.lumi-social-btn { flex: 1; background: #0b100d; border: 1px solid #29312b; color: #d4ddd7; padding: 12px; border-radius: 9px; font-size: 12px; transition: .3s; }
+.lumi-social-btn { flex: 1; background: #0b100d; border: 1px solid #29312b; color: #d4ddd7; padding: 9px; border-radius: 9px; font-size: 11px; transition: .3s; }
 .lumi-social-btn:hover { border-color: #8ae6b1; background: #17221b; }
-.lumi-footer-text { margin-top: 22px; text-align: center; color: #67726b; font-size: 10px; line-height: 1.8; }
+.lumi-footer-text { margin-top: 14px; text-align: center; color: #67726b; font-size: 9px; line-height: 1.6; }
 .lumi-footer-text a { color: var(--lumi-green); text-decoration: none; }
-.lumi-bottom-text { position: absolute; bottom: 22px; left: 8%; right: 8%; display: flex; justify-content: space-between; color: #46514a; font-size: 9px; letter-spacing: 2px; }
+.lumi-bottom-text { position: absolute; bottom: 22px; left: 8%; right: 8%; display: flex; justify-content: space-between; color: rgba(235,241,247,.78); font-size: 9px; letter-spacing: 2px; text-shadow: 0 1px 8px rgba(0,0,0,.7); }
 .lumi-toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: #c5f7d8; color: #102016; padding: 14px 24px; border-radius: 10px; font-size: 13px; z-index: 120; box-shadow: 0 8px 30px #0008; max-width: calc(100vw - 30px); text-align: center; }
 @keyframes lumi-login-arrival { from { opacity: 0; } to { opacity: 1; } }
 @media (max-width: 1000px) {
-  .lumi-scene { flex-direction: column; padding: 35px 20px 90px; gap: 30px; }
+  .lumi-scene { flex-direction: column; padding: 24px 20px 44px; gap: 18px; }
   .lumi-lamp-area { position: relative; top: auto; left: auto; transform: none; height: 400px; width: 330px; margin: 0 auto; flex: 0 0 auto; }
   .lumi-lamp { transform: scale(.8); transform-origin: top center; margin-bottom: -50px; }
   .lumi-lamp-caption { left: 50%; transform: translateX(-50%); }
-  .lumi-login-card { margin: 0 auto; width: min(420px, 100%); }
+  .lumi-login-card { margin: 0 auto; width: min(390px, 100%); }
   .lumi-bottom-text { font-size: 8px; bottom: 15px; }
 }
 @media (max-width: 480px) {
-  .lumi-scene { padding: 20px 16px 70px; }
+  .lumi-scene { padding: 14px 14px 28px; }
   .lumi-lamp-area { height: 320px; transform: scale(.85); transform-origin: top center; margin-bottom: -35px; }
-  .lumi-login-card { padding: 25px 20px; border-radius: 18px; }
-  .lumi-card-header h1 { font-size: 28px; }
+  .lumi-login-card { padding: 20px 17px; border-radius: 16px; }
+  .lumi-card-header h1 { font-size: 26px; }
   .lumi-bottom-text { left: 15px; right: 15px; letter-spacing: 1px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -12,6 +12,50 @@ import {
   Cell,
 } from "recharts";
 
+export function CashFlowTooltip({
+  active,
+  payload,
+  label,
+  currencyFormatter,
+  tooltipLabelFormatter,
+  tooltipContentStyle,
+}) {
+  if (!active || !payload?.length) return null;
+
+  const point = payload[0].payload || {};
+  const incomeValue = Number(point.income);
+  const expenseValue = Number(point.expenses);
+  const income = Number.isFinite(incomeValue) ? incomeValue : 0;
+  const expenses = Number.isFinite(expenseValue) ? expenseValue : 0;
+  const expenseRatio = income > 0 ? `${((expenses / income) * 100).toFixed(1)}%` : "Not available";
+
+  return (
+    <div className="cash-flow-tooltip" role="status" style={tooltipContentStyle}>
+      <strong className="cash-flow-tooltip-label">
+        {tooltipLabelFormatter ? tooltipLabelFormatter(label) : label}
+      </strong>
+      <div className="cash-flow-tooltip-row">
+        <span className="cash-flow-tooltip-name">
+          <i className="cash-flow-tooltip-income-dot" />
+          Income
+        </span>
+        <strong>{currencyFormatter(income)}</strong>
+      </div>
+      <div className="cash-flow-tooltip-row">
+        <span className="cash-flow-tooltip-name">
+          <i className="cash-flow-tooltip-expense-dot" />
+          Expenses
+        </span>
+        <strong>{currencyFormatter(expenses)}</strong>
+      </div>
+      <div className="cash-flow-tooltip-row cash-flow-tooltip-ratio">
+        <span>Expenses / income</span>
+        <strong>{expenseRatio}</strong>
+      </div>
+    </div>
+  );
+}
+
 export function CashFlowChart({
   data,
   gradientId,
@@ -45,9 +89,13 @@ export function CashFlowChart({
           width={yAxisWidth}
         />
         <Tooltip
-          contentStyle={tooltipContentStyle}
-          formatter={(value, name) => [currencyFormatter(value), name === "income" ? "Income" : "Expenses"]}
-          labelFormatter={tooltipLabelFormatter}
+          content={
+            <CashFlowTooltip
+              currencyFormatter={currencyFormatter}
+              tooltipLabelFormatter={tooltipLabelFormatter}
+              tooltipContentStyle={tooltipContentStyle}
+            />
+          }
         />
         <Area
           type="monotone"

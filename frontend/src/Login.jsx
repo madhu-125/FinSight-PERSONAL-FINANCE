@@ -97,9 +97,12 @@ export default function Login({ onLogin, onBackToLanding }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [otpChannel, setOtpChannel] = useState("email");
   const [phone, setPhone] = useState("");
+  const [smsOtpSent, setSmsOtpSent] = useState(false);
+  const [smsCode, setSmsCode] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -133,9 +136,9 @@ export default function Login({ onLogin, onBackToLanding }) {
       particles = Array.from({ length: 84 }, () => ({
         x: Math.random() * window.innerWidth,
         y: Math.random() * window.innerHeight,
-        size: Math.random() * 2 + 0.8,
+        size: Math.random() * 1.1 + 0.65,
         speed: Math.random() * 0.4 + 0.1,
-        opacity: Math.random() * 0.4 + 0.15,
+        opacity: Math.random() * 0.16 + 0.07,
       }));
     };
 
@@ -150,9 +153,9 @@ export default function Login({ onLogin, onBackToLanding }) {
         }
         ctx.beginPath();
         ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(190, 255, 215, ${particle.opacity})`;
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = "rgba(130,255,190,0.4)";
+        ctx.fillStyle = `rgba(190, 195, 255, ${particle.opacity})`;
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = "rgba(130,125,255,0.24)";
         ctx.fill();
       });
       frameId = window.requestAnimationFrame(animate);
@@ -258,6 +261,57 @@ export default function Login({ onLogin, onBackToLanding }) {
     }
   };
 
+  const sendPhoneOtp = async () => {
+    setAuthError("");
+    setIsSubmittingAuth(true);
+    try {
+      const result = await parseApiResponse(await fetch(`${API_BASE_URL}/api/auth/otp/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          channel: "sms",
+          phone: getPhoneNumber(phone),
+          flow: signupMode ? "signup" : "login",
+          ...(signupMode ? { displayName: name.trim() } : {}),
+        }),
+      }));
+      setSmsOtpSent(true);
+      setSmsCode("");
+      setResendSeconds(result.resendAfterSeconds || 60);
+      showToast(`A verification code was sent to ${getPhoneNumber(phone)}.`);
+    } catch (error) {
+      if (error.retryAfterSeconds) setResendSeconds(error.retryAfterSeconds);
+      setAuthError(error.message);
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const verifyPhoneOtp = async () => {
+    setAuthError("");
+    setIsSubmittingAuth(true);
+    try {
+      const result = await parseApiResponse(await fetch(`${API_BASE_URL}/api/auth/otp/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          channel: "sms",
+          phone: getPhoneNumber(phone),
+          code: smsCode,
+          flow: signupMode ? "signup" : "login",
+          ...(signupMode ? { displayName: name.trim() } : {}),
+        }),
+      }));
+      completeLogin(result);
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
   const completeLogin = (result) => {
     onLogin?.({
       name: result.displayName || (otpChannel === "email" ? email.split("@")[0] : phone) || "there",
@@ -275,8 +329,20 @@ export default function Login({ onLogin, onBackToLanding }) {
       setAuthError("Please enter your name.");
       return;
     }
+    if (otpChannel === "sms") {
+      if (smsOtpSent) {
+        await verifyPhoneOtp();
+      } else {
+        await sendPhoneOtp();
+      }
+      return;
+    }
     if (signupMode && password.length < 8) {
       setAuthError("Use at least 8 characters for your password.");
+      return;
+    }
+    if (signupMode && password !== signupConfirmPassword) {
+      setAuthError("Passwords do not match.");
       return;
     }
     const recipient = otpChannel === "email" ? { email } : { phone: getPhoneNumber(phone) };
@@ -328,8 +394,16 @@ export default function Login({ onLogin, onBackToLanding }) {
                   ? `Enter the code sent to ${email}, then choose a new password.`
                   : "Email reset codes are available only for accounts registered with that email address."
                 : signupMode
-                    ? "Create an account with your email or mobile number and password. No verification code is required."
-                  : "Sign in securely with your password."}
+                    ? otpChannel === "sms"
+                      ? smsOtpSent
+                        ? `Enter the verification code sent to ${getPhoneNumber(phone)} to finish creating your account.`
+                        : "Create your account with your mobile number. We will text you a verification code."
+                      : "Create an account with your email and password."
+                    : otpChannel === "sms"
+                      ? smsOtpSent
+                        ? `Enter the verification code sent to ${getPhoneNumber(phone)} to sign in.`
+                        : "Sign in securely with a one-time code sent to your mobile number."
+                      : "Sign in securely with your email and password."}
             </p>
           </div>
 
@@ -444,6 +518,9 @@ export default function Login({ onLogin, onBackToLanding }) {
                   onClick={() => {
                     setSignupMode(false);
                     setForgotPasswordMode(false);
+                    setSmsOtpSent(false);
+                    setSmsCode("");
+                    setSignupConfirmPassword("");
                     setAuthError("");
                   }}
                 >
@@ -455,6 +532,9 @@ export default function Login({ onLogin, onBackToLanding }) {
                   onClick={() => {
                     setSignupMode(true);
                     setForgotPasswordMode(false);
+                    setSmsOtpSent(false);
+                    setSmsCode("");
+                    setSignupConfirmPassword("");
                     setAuthError("");
                   }}
                 >
@@ -469,6 +549,8 @@ export default function Login({ onLogin, onBackToLanding }) {
                   aria-pressed={otpChannel === "email"}
                   onClick={() => {
                     setOtpChannel("email");
+                    setSmsOtpSent(false);
+                    setSmsCode("");
                     setAuthError("");
                   }}
                 >
@@ -480,6 +562,8 @@ export default function Login({ onLogin, onBackToLanding }) {
                   aria-pressed={otpChannel === "sms"}
                   onClick={() => {
                     setOtpChannel("sms");
+                    setSmsOtpSent(false);
+                    setSmsCode("");
                     setAuthError("");
                   }}
                 >
@@ -496,6 +580,22 @@ export default function Login({ onLogin, onBackToLanding }) {
                   <div className="lumi-input-group">
                     <label htmlFor="lumi-email">Email Address</label>
                     <input id="lumi-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" required />
+                  </div>
+                ) : smsOtpSent ? (
+                  <div className="lumi-input-group">
+                    <label htmlFor="lumi-sms-code">SMS verification code</label>
+                    <input
+                      id="lumi-sms-code"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      value={smsCode}
+                      onChange={(event) => setSmsCode(event.target.value.replace(/\D/g, ""))}
+                      placeholder="6-digit code"
+                      required
+                    />
                   </div>
                 ) : (
                   <div className="lumi-input-group">
@@ -519,25 +619,44 @@ export default function Login({ onLogin, onBackToLanding }) {
                     <p className="lumi-input-help" id="lumi-phone-help">Enter 10 digits. India country code +91 is added automatically.</p>
                   </div>
                 )}
-                <div className="lumi-input-group">
-                  <label htmlFor="lumi-password">{signupMode ? "Create password" : "Password"}</label>
-                  <div className="lumi-password-box">
-                    <input
-                      id="lumi-password"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      placeholder={signupMode ? "At least 8 characters" : "Enter your password"}
-                      minLength={signupMode ? 8 : undefined}
-                      autoComplete={signupMode ? "new-password" : "current-password"}
-                      required
-                    />
-                    <button type="button" className="lumi-show-password" onClick={() => setShowPassword((value) => !value)}>
-                      {showPassword ? "HIDE" : "SHOW"}
-                    </button>
-                  </div>
-                </div>
-                {!signupMode && <div className="lumi-form-options">
+                {otpChannel === "email" && (
+                  <>
+                    <div className="lumi-input-group">
+                      <label htmlFor="lumi-password">{signupMode ? "Create password" : "Password"}</label>
+                      <div className="lumi-password-box">
+                        <input
+                          id="lumi-password"
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(event) => setPassword(event.target.value)}
+                          placeholder={signupMode ? "At least 8 characters" : "Enter your password"}
+                          minLength={signupMode ? 8 : undefined}
+                          autoComplete={signupMode ? "new-password" : "current-password"}
+                          required
+                        />
+                        <button type="button" className="lumi-show-password" onClick={() => setShowPassword((value) => !value)}>
+                          {showPassword ? "HIDE" : "SHOW"}
+                        </button>
+                      </div>
+                    </div>
+                    {signupMode && (
+                      <div className="lumi-input-group">
+                        <label htmlFor="lumi-signup-confirm-password">Confirm password</label>
+                        <input
+                          id="lumi-signup-confirm-password"
+                          type="password"
+                          value={signupConfirmPassword}
+                          onChange={(event) => setSignupConfirmPassword(event.target.value)}
+                          placeholder="Re-enter your password"
+                          minLength={8}
+                          autoComplete="new-password"
+                          required
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+                {!signupMode && otpChannel === "email" && <div className="lumi-form-options">
                   <label className="lumi-remember"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember me</label>
                   <button
                     type="button"
@@ -555,20 +674,50 @@ export default function Login({ onLogin, onBackToLanding }) {
                   </button>
                 </div>}
                 {authError && <p className="lumi-auth-error" role="alert">{authError}</p>}
-                <button type="submit" className="lumi-submit-btn" disabled={isSubmittingAuth}>
+                <button
+                  type="submit"
+                  className="lumi-submit-btn"
+                  disabled={isSubmittingAuth || (otpChannel === "sms" && smsOtpSent && smsCode.length !== 6)}
+                >
                   {isSubmittingAuth
-                    ? signupMode
-                      ? "Creating account..."
-                      : "Signing in..."
-                    : signupMode ? "Create Account" : "Sign In"}
+                    ? otpChannel === "sms"
+                      ? smsOtpSent ? "Verifying code..." : "Sending code..."
+                      : signupMode ? "Creating account..." : "Signing in..."
+                    : otpChannel === "sms"
+                      ? smsOtpSent ? "Verify code & continue" : "Send verification code"
+                      : signupMode ? "Create Account" : "Sign In"}
                   {" "}<span>↗</span>
                 </button>
               </form>
+              {otpChannel === "sms" && smsOtpSent && (
+                <div className="lumi-otp-actions">
+                  <button
+                    type="button"
+                    className="lumi-text-link"
+                    onClick={() => {
+                      setSmsOtpSent(false);
+                      setSmsCode("");
+                      setResendSeconds(0);
+                      setAuthError("");
+                    }}
+                  >
+                    Change phone number
+                  </button>
+                  <button
+                    type="button"
+                    className="lumi-text-link"
+                    onClick={sendPhoneOtp}
+                    disabled={isSubmittingAuth || resendSeconds > 0}
+                  >
+                    {resendSeconds > 0 ? `Resend in ${resendSeconds}s` : "Resend code"}
+                  </button>
+                </div>
+              )}
             </>
           )}
           <p className="lumi-footer-text">By continuing, you agree to our <a href="#terms" onClick={(e) => e.preventDefault()}>Terms</a> &amp; <a href="#privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a>.</p>
         </section>
-        <div className="lumi-bottom-text"><span>YOUR MONEY, IN A CLEARER LIGHT</span><span>© 2026 FINSIGHT</span></div>
+        <div className="lumi-bottom-text"><span>YOUR MONEY IN A CLEAR LIGHT</span><span>© 2026 FINSIGHT</span></div>
       </main>
       {toast && <div className="lumi-toast" role="status">{toast}</div>}
     </div>
