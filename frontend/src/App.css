@@ -512,7 +512,8 @@ button {
   place-items: center;
   color: white;
   font-weight: 700;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .profile-info {
@@ -5052,8 +5053,10 @@ button {
 
 @media (max-width: 540px) {
   .profile-setup-page {
-    padding: 10px 12px;
+    min-height: 100dvh;
+    padding: 12px;
     background-position: center center;
+    background-size: 100% 100%;
   }
 
   .profile-setup-secure {
@@ -5068,7 +5071,7 @@ button {
   .profile-setup-layout {
     margin: 0 auto;
     min-height: auto;
-    padding: 10px 0;
+    padding: 12px 0 20px;
   }
 
   .profile-setup-progress {
@@ -5095,7 +5098,8 @@ button {
 
   .profile-setup-card.panel {
     gap: 15px;
-    padding: 18px 15px;
+    width: 100%;
+    padding: 22px 17px;
     border-radius: 15px;
   }
 
@@ -5106,6 +5110,52 @@ button {
   .profile-setup-heading-icon {
     width: 54px;
     height: 54px;
+  }
+
+  .profile-setup-page .profile-setup-heading {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .profile-setup-page .profile-setup-heading h2 {
+    font-size: 22px;
+  }
+
+  .profile-setup-page .profile-setup-heading p:last-child {
+    font-size: 13px;
+  }
+
+  .profile-setup-form {
+    gap: 16px;
+  }
+
+  .profile-setup-page .profile-setup-field {
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .profile-setup-page .profile-setup-field input,
+  .profile-setup-page .profile-setup-field select,
+  .profile-setup-page .profile-setup-field textarea {
+    min-height: 48px;
+    padding: 12px 13px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
+
+  .profile-setup-goal-option {
+    min-height: 42px;
+    padding: 8px 13px;
+    font-size: 12px;
+  }
+
+  .profile-setup-submit {
+    min-height: 50px;
+    font-size: 14px;
+  }
+
+  .profile-setup-privacy {
+    font-size: 10px;
   }
 
   .profile-setup-row {
