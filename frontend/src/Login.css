@@ -181,4 +181,80 @@
 .lumi-login-card { margin: 0; }
 .lumi-bottom-text { display: none; }
 @media (max-width: 1000px) { .lumi-scene { display: flex; gap: 14px; padding-top: 65px; }.lumi-finance-hero { min-height: 460px; width: min(620px, 100%); transform: scale(.9); transform-origin: top center; margin-bottom: -45px; }.lumi-login-card { margin: 0 auto; } }
-@media (max-width: 560px) { .lumi-scene { padding: 58px 14px 26px; }.lumi-finance-hero { min-height: 365px; transform: scale(.72); width: 138%; margin-left: -19%; margin-bottom: -90px; }.lumi-hero-brand { font-size: 42px; }.lumi-hero-kicker { letter-spacing: 5px; }.lumi-finance-hero h2 { font-size: 28px; }.lumi-login-card { width: 100%; }.lumi-back-button { top: 17px; left: 14px; } }
+@media (max-width: 560px) {
+  .lumi-scene {
+    width: 100%;
+    min-height: 100dvh;
+    padding: 58px 14px 30px;
+    gap: 10px;
+  }
+
+  .lumi-finance-hero {
+    width: 100%;
+    min-height: 430px;
+    margin: 0;
+    padding-top: 12px;
+    transform: none;
+  }
+
+  .lumi-hero-brand {
+    gap: 9px;
+    font-size: clamp(32px, 10vw, 42px);
+    letter-spacing: -2px;
+  }
+
+  .lumi-hero-mark {
+    width: 39px;
+    height: 37px;
+    gap: 3px;
+  }
+
+  .lumi-hero-mark::before {
+    width: 30px;
+    height: 11px;
+    border-width: 4px;
+  }
+
+  .lumi-hero-mark i { width: 8px; }
+  .lumi-hero-mark i:nth-child(1) { height: 16px; }
+  .lumi-hero-mark i:nth-child(2) { height: 25px; }
+  .lumi-hero-mark i:nth-child(3) { height: 35px; }
+
+  .lumi-hero-kicker {
+    margin-top: 20px;
+    letter-spacing: 5px;
+    font-size: 11px;
+  }
+
+  .lumi-hero-motto {
+    margin: 12px 0 16px;
+    font-size: 17px;
+    letter-spacing: 2px;
+  }
+
+  .lumi-finance-hero h2 {
+    font-size: clamp(23px, 7vw, 28px);
+  }
+
+  .lumi-hero-features {
+    gap: 9px;
+    margin-top: 20px;
+  }
+
+  .lumi-hero-features span { font-size: 11px; }
+  .lumi-hero-features b { width: 23px; height: 23px; font-size: 13px; }
+
+  .lumi-money-scene {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 220px;
+  }
+
+  .lumi-login-card {
+    width: 100%;
+    padding: 22px 17px;
+  }
+
+  .lumi-back-button { top: 17px; left: 14px; }
+}

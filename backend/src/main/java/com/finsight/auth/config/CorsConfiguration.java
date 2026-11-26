@@ -31,6 +31,17 @@ public class CorsConfiguration implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
             .allowedOrigins(clientOrigins.toArray(new String[0]))
+            .allowedOriginPatterns(
+                "http://10.*:3000",
+                "http://192.168.*:3000",
+                "http://172.16.*:3000",
+                "http://172.17.*:3000",
+                "http://172.18.*:3000",
+                "http://172.19.*:3000",
+                "http://172.2*:3000",
+                "http://172.30.*:3000",
+                "http://172.31.*:3000"
+            )
             .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
             .allowedHeaders("Content-Type")
             .allowCredentials(true)

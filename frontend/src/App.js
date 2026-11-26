@@ -722,6 +722,7 @@ function ProfileView({
   onLogout,
   onDeleteAccount,
   onNavigate,
+  onOpenProfileSetup,
 }) {
   const [displayName, setDisplayName] = useState(userInfo.name || "");
   const [age, setAge] = useState("");
@@ -1388,6 +1389,20 @@ function ProfileView({
         )}
         {pageMode === "Settings" && (
         <div className="profile-settings-column">
+          <section className="panel profile-card" aria-labelledby="user-details-settings-title">
+            <div className="profile-card-heading">
+              <div className="settings-card-icon"><UserRound size={19} /></div>
+              <div>
+                <h3 id="user-details-settings-title">User details</h3>
+                <p>Enter or update your personal and financial details.</p>
+              </div>
+            </div>
+            <button className="profile-link-card" type="button" onClick={onOpenProfileSetup}>
+              <span className="settings-card-icon"><UserRound size={19} /></span>
+              <span><strong>Open user details</strong><small>Complete your profile before returning to the dashboard</small></span>
+              <ArrowUpRight size={17} />
+            </button>
+          </section>
           <section className="panel profile-card" aria-labelledby="appearance-settings-title">
             <div className="profile-card-heading">
               <div className="settings-card-icon"><Sparkles size={19} /></div>
@@ -1811,6 +1826,8 @@ function LandingPage({ onLogin, language, onLanguageChange }) {
         <nav className="landing-nav" aria-label="Main navigation">
           <a href="#features">Features</a>
           <a href="#product-tour">{translate(language, "landingTour")}</a>
+          <a href="#assistant">AI Assistant</a>
+          <a href="#how-it-works">How it works</a>
           <a href="#about">{translate(language, "landingAbout")}</a>
         </nav>
         <label className="landing-language-control">
@@ -1841,6 +1858,10 @@ function LandingPage({ onLogin, language, onLanguageChange }) {
           <div className="landing-preview-wrap" id="preview">
             <div className="landing-orbit landing-orbit-one" />
             <div className="landing-orbit landing-orbit-two" />
+            <div className="landing-finance-decor landing-coin-decor landing-coin-one"><CircleDollarSign size={22} /></div>
+            <div className="landing-finance-decor landing-coin-decor landing-coin-two"><span>₹</span></div>
+            <div className="landing-finance-decor landing-pig-decor"><PiggyBank size={29} /></div>
+            <div className="landing-finance-decor landing-wallet-decor"><WalletCards size={28} /></div>
             <PullLamp
               className={`landing-lamp ${isPulling ? "is-pulled" : ""}`}
               lampOn={lampOn}
@@ -1873,6 +1894,21 @@ function LandingPage({ onLogin, language, onLanguageChange }) {
               <span className="landing-feature-icon feature-orange"><Sparkles size={21} /></span>
               <h3>{translate(language, "feature3Title")}</h3>
               <p>{translate(language, "feature3Description")}</p>
+            </article>
+            <article className="landing-feature">
+              <span className="landing-feature-icon feature-blue"><Bot size={21} /></span>
+              <h3>AI finance assistant</h3>
+              <p>Ask questions about your money and receive clear, practical recommendations.</p>
+            </article>
+            <article className="landing-feature">
+              <span className="landing-feature-icon feature-pink"><ReceiptText size={21} /></span>
+              <h3>Simple activity history</h3>
+              <p>Keep income, expenses, and important transactions easy to review.</p>
+            </article>
+            <article className="landing-feature">
+              <span className="landing-feature-icon feature-teal"><Target size={21} /></span>
+              <h3>Goals that stay visible</h3>
+              <p>Turn your next milestone into a plan with progress you can follow.</p>
             </article>
           </div>
         </section>
@@ -1941,6 +1977,35 @@ function LandingPage({ onLogin, language, onLanguageChange }) {
           </div>
         </section>
 
+        <section className="landing-assistant" id="assistant">
+          <div className="landing-assistant-copy">
+            <span className="landing-section-kicker">YOUR MONEY, WITH A SECOND OPINION</span>
+            <h2>Meet your AI finance assistant.</h2>
+            <p>FinSight turns your activity into calm, useful guidance so you can make your next money decision with confidence.</p>
+            <button className="landing-tour-cta" type="button" onClick={onLogin}>
+              Try the assistant <ArrowUpRight size={16} />
+            </button>
+          </div>
+          <div className="landing-assistant-card">
+            <div className="landing-assistant-card-title"><span className="landing-feature-icon feature-purple"><Bot size={17} /></span><span><strong>FinSight AI</strong><small>Personal finance companion</small></span></div>
+            <div className="landing-assistant-message">Your spending is on track this month.</div>
+            <div className="landing-assistant-message assistant-message-muted">You could move ₹2,400 to your emergency fund and still stay within your plan.</div>
+            <div className="landing-assistant-prompt">Ask about your budget <ArrowUpRight size={14} /></div>
+          </div>
+        </section>
+
+        <section className="landing-how-it-works" id="how-it-works">
+          <div className="landing-section-heading">
+            <span>ONE CLEARER ROUTINE</span>
+            <h2>Track. Analyze. Improve.</h2>
+          </div>
+          <div className="landing-steps-grid">
+            <article className="landing-step"><span>01</span><TrendingUp size={20} /><h3>Track</h3><p>Bring your income, expenses, and goals into one simple view.</p></article>
+            <article className="landing-step"><span>02</span><ChartNoAxesCombined size={20} /><h3>Analyze</h3><p>See patterns, progress, and opportunities without the spreadsheet overload.</p></article>
+            <article className="landing-step"><span>03</span><Sparkles size={20} /><h3>Improve</h3><p>Use timely insights to make small decisions that move you forward.</p></article>
+          </div>
+        </section>
+
         <section className="landing-about" id="about">
           <span>ABOUT FINSIGHT</span>
           <h2>{translate(language, "landingAbout")}</h2>
@@ -1948,11 +2013,17 @@ function LandingPage({ onLogin, language, onLanguageChange }) {
           <button className="landing-tour-cta" type="button" onClick={() => scrollToSection("product-tour")}>
             Explore the previews <ArrowUpRight size={16} />
           </button>
+          <button className="landing-primary-cta landing-final-cta" type="button" onClick={onLogin}>
+            Get started with FinSight <ArrowUpRight size={15} />
+          </button>
         </section>
       </main>
 
       <footer className="landing-footer">
         <a className="landing-brand" href="#home"><span className="landing-brand-icon"><Wallet size={18} /></span><span>Fin<span className="landing-brand-accent">Sight</span></span></a>
+        <nav className="landing-footer-links" aria-label="Footer navigation">
+          <a href="#about">About</a><a href="#how-it-works">How it works</a><a href="#home">Privacy</a>
+        </nav>
         <span>Smart money, smarter future.</span>
       </footer>
     </div>
@@ -1993,7 +2064,7 @@ function SessionErrorPage({ message, onRetry, onReturnToLanding }) {
   );
 }
 
-function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
+function ProfileSetupView({ userInfo, onComplete, onSkip, onSignOut, logoutError }) {
   const [formData, setFormData] = useState({
     displayName: userInfo.name || "",
     email: userInfo.email || "",
@@ -2162,6 +2233,9 @@ function ProfileSetupView({ userInfo, onComplete, onSignOut, logoutError }) {
           <p className="profile-setup-story-copy">
             A little about you helps FinSight shape a more personal, thoughtful view of your finances.
           </p>
+          <button className="profile-setup-skip-button" type="button" onClick={onSkip}>
+            Skip for now <ArrowUpRight size={15} />
+          </button>
           <div className="profile-setup-visual" aria-hidden="true">
             <div className="profile-setup-orbit profile-setup-orbit-one" />
             <div className="profile-setup-orbit profile-setup-orbit-two" />
@@ -3107,6 +3181,7 @@ function App() {
   const notificationAudioRef = useRef(null);
   const loginWelcomePendingRef = useRef(false);
   const loginIsNewAccountRef = useRef(false);
+  const profileSetupReturnsToDashboardRef = useRef(false);
   const previousAlertIdsRef = useRef(new Set());
   const previousNotificationAlertIdsRef = useRef(new Set());
 
@@ -3272,6 +3347,7 @@ function App() {
   }, [currentPage]);
 
   const handleLogin = (user = {}) => {
+    profileSetupReturnsToDashboardRef.current = true;
     loginWelcomePendingRef.current = true;
     loginIsNewAccountRef.current = user.isNewAccount === true;
     window.localStorage.setItem(AUTH_STORAGE_KEY, "true");
@@ -3383,6 +3459,8 @@ function App() {
 
   const handleProfileSetupComplete = useCallback((profile) => {
     handleProfileUpdated(profile);
+    profileSetupReturnsToDashboardRef.current = false;
+    setActivePage("Dashboard");
     setCurrentPage("dashboard");
   }, [handleProfileUpdated]);
 
@@ -3725,6 +3803,11 @@ function App() {
         <ProfileSetupView
           userInfo={userInfo}
           onComplete={handleProfileSetupComplete}
+          onSkip={() => {
+            profileSetupReturnsToDashboardRef.current = false;
+            setActivePage("Dashboard");
+            setCurrentPage("dashboard");
+          }}
           onSignOut={handleLogout}
           logoutError={logoutError}
         />
@@ -4456,6 +4539,10 @@ function App() {
             onLogout={() => setIsLogoutConfirmOpen(true)}
             onDeleteAccount={handleDeleteAccount}
             onNavigate={navigateToPage}
+            onOpenProfileSetup={() => {
+              profileSetupReturnsToDashboardRef.current = false;
+              setCurrentPage("profile-setup");
+            }}
           />
         ) : activePage === "Settings" || activePage === "Login History" ? (
           <ProfileView
@@ -4477,6 +4564,10 @@ function App() {
             onLogout={() => setIsLogoutConfirmOpen(true)}
             onDeleteAccount={handleDeleteAccount}
             onNavigate={navigateToPage}
+            onOpenProfileSetup={() => {
+              profileSetupReturnsToDashboardRef.current = false;
+              setCurrentPage("profile-setup");
+            }}
           />
         ) : (
           <section className="coming-soon panel">

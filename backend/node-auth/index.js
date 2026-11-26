@@ -118,8 +118,9 @@ function createAuthServer({
 
   const server = http.createServer(async (request, response) => {
     const origin = request.headers.origin;
-    if (origin && origin === clientOrigin) {
-      response.setHeader("Access-Control-Allow-Origin", clientOrigin);
+    const isLocalNetworkOrigin = /^http:\/\/(localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)[^:]*:3000$/.test(origin || "");
+    if (origin && (origin === clientOrigin || isLocalNetworkOrigin)) {
+      response.setHeader("Access-Control-Allow-Origin", origin);
       response.setHeader("Access-Control-Allow-Credentials", "true");
       response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       response.setHeader("Access-Control-Allow-Headers", "Content-Type");

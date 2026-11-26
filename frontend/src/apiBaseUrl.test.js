@@ -9,6 +9,10 @@ test('matches 127.0.0.1 API requests to the browser localhost hostname', () => {
   expect(getApiBaseUrl('http://127.0.0.1:8080', 'localhost')).toBe('http://localhost:8080');
 });
 
+test('uses the phone or computer LAN hostname for a local API', () => {
+  expect(getApiBaseUrl('http://localhost:4000', '192.168.1.47')).toBe('http://192.168.1.47:4000');
+});
+
 test('leaves configured non-loopback API hosts unchanged', () => {
   expect(getApiBaseUrl('https://api.example.test', 'localhost')).toBe('https://api.example.test');
 });
