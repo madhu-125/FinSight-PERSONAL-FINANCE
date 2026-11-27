@@ -25,7 +25,7 @@
     "server": "node --env-file=../.env ../backend/node-auth/index.js",
     "eject": "react-scripts eject"
   },
-  "proxy": "http://localhost:4000",
+  "proxy": "http://localhost:8080",
   "eslintConfig": {
     "extends": [
       "react-app",
