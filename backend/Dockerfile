@@ -1,4 +1,4 @@
-FROM maven:3.9.9-eclipse-temurin-25 AS build
+FROM maven:3.9.9-eclipse-temurin-21 AS build
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ COPY database ./database
 
 RUN mvn -B -s /root/.m2/settings.xml clean package -DskipTests
 
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
